@@ -1,10 +1,22 @@
 """VARUNA OpenStreetMap and network analysis package."""
 from varuna.osm.network import (
-    RoadNetworkConnectivityAnalyzer,
+    InfrastructureState,
+    UnattachedSettlement,
     InfrastructureExposureSummary,
+    RoadNetworkConnectivityAnalyzer,
+    WGS84_GEOD,
+)
+from varuna.osm.fetcher import (
+    HistoricalOSMFetcher,
+    OverpassQueryError,
 )
 
 __all__ = [
-    "RoadNetworkConnectivityAnalyzer",
+    "InfrastructureState",
+    "UnattachedSettlement",
     "InfrastructureExposureSummary",
+    "RoadNetworkConnectivityAnalyzer",
+    "WGS84_GEOD",
+    "HistoricalOSMFetcher",
+    "OverpassQueryError",
 ]

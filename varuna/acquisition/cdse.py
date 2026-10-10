@@ -50,22 +50,38 @@ class DiscoveredRadarScene(RadarScene):
             # Normalize to naive UTC for consistent comparison with user dates
             start_dt = start_dt.astimezone(timezone.utc).replace(tzinfo=None)
 
-        # Parse attributes
+        # Parse attributes with strict validation (no silent defaults)
         attributes = {attr.get("Name"): attr.get("Value") for attr in item.get("Attributes", []) if "Name" in attr}
         
         # Relative orbit
-        rel_orbit = int(attributes.get("relativeOrbitNumber", 1))
+        if "relativeOrbitNumber" not in attributes:
+            raise ValueError(f"Missing required attribute 'relativeOrbitNumber' in CDSE product {cdse_id}")
+        rel_orbit = int(attributes["relativeOrbitNumber"])
+        if not (1 <= rel_orbit <= 175):
+            raise ValueError(f"Invalid relativeOrbitNumber {rel_orbit} in CDSE product {cdse_id}")
         
         # Orbit direction (ASCENDING / DESCENDING)
-        raw_direction = str(attributes.get("orbitDirection", "ASCENDING")).upper()
-        direction = "ASCENDING" if "ASC" in raw_direction else "DESCENDING"
+        if "orbitDirection" not in attributes:
+            raise ValueError(f"Missing required attribute 'orbitDirection' in CDSE product {cdse_id}")
+        raw_direction = str(attributes["orbitDirection"]).upper()
+        if "ASC" in raw_direction:
+            direction = "ASCENDING"
+        elif "DESC" in raw_direction:
+            direction = "DESCENDING"
+        else:
+            raise ValueError(f"Invalid orbitDirection '{raw_direction}' in CDSE product {cdse_id}")
         
         # Polarization
-        polarization = str(attributes.get("polarisationChannels", "VV&VH"))
+        if "polarisationChannels" not in attributes:
+            raise ValueError(f"Missing required attribute 'polarisationChannels' in CDSE product {cdse_id}")
+        polarization = str(attributes["polarisationChannels"])
         
         # Sensor Mode & Product Type
-        sensor_mode = str(attributes.get("operationalMode") or attributes.get("sensorOperationalMode") or "IW")
-        product_type = str(attributes.get("productType") or "GRD")
+        sensor_mode_raw = attributes.get("operationalMode") or attributes.get("sensorOperationalMode")
+        if not sensor_mode_raw:
+            raise ValueError(f"Missing required attribute 'operationalMode' in CDSE product {cdse_id}")
+        sensor_mode = str(sensor_mode_raw)
+        product_type = str(attributes.get("productType") or ("GRD" if "GRD" in scene_id else "UNKNOWN"))
         
         # Footprint
         footprint = item.get("GeoFootprint")

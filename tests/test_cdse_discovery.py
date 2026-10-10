@@ -102,6 +102,20 @@ class TestCDSEDiscovery(unittest.TestCase):
         with self.assertRaises(AuthenticationRequiredError):
             downloader.acquire_token()
 
+    def test_missing_metadata_raises_error(self):
+        bad_item = {
+            "Id": "uuid-bad",
+            "Name": "S1A_BAD",
+            "ContentDate": {"Start": "2026-08-20T00:00:00Z"},
+            "Attributes": [
+                # Missing relativeOrbitNumber and orbitDirection!
+                {"Name": "sensorOperationalMode", "Value": "IW"},
+            ]
+        }
+        with self.assertRaises(ValueError) as ctx:
+            DiscoveredRadarScene.from_odata_item(bad_item)
+        self.assertIn("Missing required attribute", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -93,6 +93,50 @@ class RoadExposureResponse(BaseModel):
     exposed_roads_geojson: Dict[str, Any]
 
 
+class CreateJobRequest(BaseModel):
+    aoi: GeoJSONGeometry
+    event_date: datetime
+    pre_window_days: int = Field(30, ge=1, le=120)
+    post_window_days: int = Field(15, ge=1, le=60)
+    water_threshold_db: float = -3.5
+    debris_threshold_db: float = 3.5
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    progress_percent: int
+    created_at: str
+    completed_at: Optional[str] = None
+    error_message: Optional[str] = None
+    selected_scenes: Optional[Dict[str, Any]] = None
+    artifacts: Dict[str, str] = Field(default_factory=dict)
+    summary_results: Optional[Dict[str, Any]] = None
+    logs: List[str] = Field(default_factory=list)
+
+
+class ValidationBenchmarkRequest(BaseModel):
+    predicted_binary_mask: List[List[int]]
+    reference_binary_mask: List[List[int]]
+    reference_dataset_name: str = "Copernicus EMS EMSR927"
+    event_date: datetime
+    pixel_area_m2: float = 100.0
+
+
+class ValidationBenchmarkResponse(BaseModel):
+    reference_dataset_name: str
+    reference_activation_code: str
+    valid_evaluated_area_km2: float
+    iou_score: float
+    precision_score: float
+    recall_score: float
+    f1_score: float
+    accuracy_score: float
+    confusion_matrix: Dict[str, int]
+    methodological_notes: str
+    limitations: Dict[str, str]
+
+
 class HealthResponse(BaseModel):
     status: str
     system: str

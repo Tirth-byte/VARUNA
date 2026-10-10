@@ -1,9 +1,10 @@
-"""Integration tests for VARUNA FastAPI endpoints."""
+"""Integration tests for VARUNA FastAPI endpoints including job pipeline and benchmarks."""
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from datetime import datetime
 from fastapi.testclient import TestClient
+from shapely.geometry import Polygon
 
 from varuna.api.main import app
 from varuna.acquisition.cdse import DiscoveredRadarScene, ScenePairRecommendation
@@ -88,7 +89,6 @@ class TestFastAPIEndpoints(unittest.TestCase):
                             "osm_id": 101,
                             "highway": "primary",
                             "bridge": True,
-                            "length_m": 1200.0
                         }
                     }
                 ]
@@ -115,7 +115,84 @@ class TestFastAPIEndpoints(unittest.TestCase):
         self.assertEqual(data["exposed_bridges_count"], 1)
         self.assertEqual(data["candidate_isolated_settlements_count"], 1)
         self.assertIn("Isolated Hamlet", data["candidate_isolated_settlements"])
-        self.assertIn("IMPORTANT SCIENTIFIC LIMITATION", data["disclaimer"])
+        self.assertIn("SCIENTIFIC ASSUMPTION & LIMITATION", data["disclaimer"])
+
+    def test_validation_benchmark_endpoint(self):
+        payload = {
+            "predicted_binary_mask": [[1, 0], [0, 1]],
+            "reference_binary_mask": [[1, 0], [1, 1]],
+            "reference_dataset_name": "Copernicus EMS EMSR927 Rapid Mapping",
+            "event_date": "2026-08-26T00:00:00",
+            "pixel_area_m2": 100.0
+        }
+        resp = self.client.post("/api/v1/validation/benchmark", json=payload)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["reference_activation_code"], "EMSR927")
+        self.assertAlmostEqual(data["precision_score"], 1.0)
+        self.assertAlmostEqual(data["recall_score"], 2.0 / 3.0)
+        self.assertAlmostEqual(data["iou_score"], 2.0 / 3.0)
+
+    def test_jobs_endpoint_creation_and_status(self):
+        payload = {
+            "aoi": {
+                "type": "Polygon",
+                "coordinates": [[[85.1, 27.8], [85.3, 27.8], [85.3, 28.0], [85.1, 28.0], [85.1, 27.8]]]
+            },
+            "event_date": "2026-08-26T00:00:00",
+            "pre_window_days": 30,
+            "post_window_days": 15
+        }
+        # Mock CDSE to test deterministic job pipeline
+        dummy_pre = DiscoveredRadarScene(
+            scene_id="S1D_IW_GRDH_PRE",
+            acquired_at=datetime(2026, 8, 16, 12, 21, 41),
+            relative_orbit=85,
+            pass_direction="ASCENDING",
+            polarization="VV&VH",
+            source_url="https://example.org/pre",
+            product_type="GRD",
+            sensor_mode="IW",
+            coverage_ratio=0.85,
+            cdse_id="uuid-pre",
+        )
+        dummy_post = DiscoveredRadarScene(
+            scene_id="S1D_IW_GRDH_POST",
+            acquired_at=datetime(2026, 8, 28, 12, 21, 41),
+            relative_orbit=85,
+            pass_direction="ASCENDING",
+            polarization="VV&VH",
+            source_url="https://example.org/post",
+            product_type="GRD",
+            sensor_mode="IW",
+            coverage_ratio=0.85,
+            cdse_id="uuid-post",
+        )
+        dummy_rec = ScenePairRecommendation(
+            before_scene=dummy_pre,
+            after_scene=dummy_post,
+            event_date=datetime(2026, 8, 26),
+            orbit_direction="ASCENDING",
+            relative_orbit=85,
+            temporal_baseline_days=12.0,
+            scientific_rationale="Matching Orbit 85 ASCENDING",
+        )
+
+        with patch("varuna.jobs.pipeline.CDSEDiscoveryService.discover_compatible_pair", return_value=dummy_rec):
+            resp = self.client.post("/api/v1/jobs", json=payload)
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            job_id = data["job_id"]
+            self.assertIn("job_id", data)
+            self.assertEqual(data["status"], "COMPLETED")
+            self.assertIn("pre_scene_id", data["selected_scenes"])
+            self.assertEqual(data["selected_scenes"]["relative_orbit"], 85)
+
+            # Check status endpoint
+            resp_status = self.client.get(f"/api/v1/jobs/{job_id}")
+            self.assertEqual(resp_status.status_code, 200)
+            status_data = resp_status.json()
+            self.assertEqual(status_data["job_id"], job_id)
 
 
 if __name__ == "__main__":

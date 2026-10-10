@@ -1,7 +1,7 @@
 """VARUNA FastAPI Engine.
 
 REST API endpoints for Sentinel-1 scene discovery, radar baseline change detection,
-and OpenStreetMap road accessibility and isolation analysis.
+OpenStreetMap road accessibility, job orchestration, and independent reference validation.
 """
 
 from __future__ import annotations
@@ -37,6 +37,16 @@ from varuna.detection.baseline import (
 from varuna.osm.network import (
     RoadNetworkConnectivityAnalyzer,
 )
+from varuna.jobs.pipeline import (
+    JobPipelineManager,
+)
+from varuna.validation.leakage_guard import (
+    DatasetRole,
+    DataProvenance,
+)
+from varuna.validation.benchmark import (
+    IndependentValidationBenchmark,
+)
 from varuna.api.schemas import (
     SceneDiscoveryRequest,
     SceneDiscoveryResponse,
@@ -45,16 +55,19 @@ from varuna.api.schemas import (
     BaselineDetectionResponse,
     RoadExposureRequest,
     RoadExposureResponse,
+    CreateJobRequest,
+    JobStatusResponse,
+    ValidationBenchmarkRequest,
+    ValidationBenchmarkResponse,
     HealthResponse,
 )
 
 app = FastAPI(
     title="VARUNA Flood Intelligence Engine",
     description="Satellite-powered flood intelligence API for Track B: Mapping Flood Damage from Space.",
-    version="0.1.0",
+    version="0.1.5",
 )
 
-# Enable CORS for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -62,6 +75,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+pipeline_manager = JobPipelineManager()
 
 
 @app.get("/api/v1/health", response_model=HealthResponse)
@@ -71,7 +86,7 @@ def get_health() -> HealthResponse:
     return HealthResponse(
         status="healthy",
         system="VARUNA Geospatial Processing Engine",
-        version="0.1.0",
+        version="0.1.5",
         library_versions={
             "python": sys.version.split()[0],
             "rasterio": rasterio.__version__,
@@ -85,6 +100,52 @@ def get_health() -> HealthResponse:
         cdse_credentials_configured=downloader.has_credentials(),
         scientific_integrity_mode="ACTIVE (No fake data; reference validation strictly held out)",
     )
+
+
+@app.post("/api/v1/jobs", response_model=JobStatusResponse)
+def submit_analysis_job(req: CreateJobRequest) -> JobStatusResponse:
+    """Submit a traceable analysis job for a given AOI and event date."""
+    job = pipeline_manager.create_job(
+        aoi_geojson=req.aoi.model_dump(),
+        event_date=req.event_date,
+        pre_window_days=req.pre_window_days,
+        post_window_days=req.post_window_days,
+        water_threshold_db=req.water_threshold_db,
+        debris_threshold_db=req.debris_threshold_db,
+    )
+    # Execute job
+    try:
+        pipeline_manager.execute_job(job.job_id)
+    except Exception as e:
+        # Job records error state
+        pass
+
+    return JobStatusResponse(**job.to_dict())
+
+
+@app.get("/api/v1/jobs/{job_id}", response_model=JobStatusResponse)
+def get_job_status(job_id: str) -> JobStatusResponse:
+    """Check execution status, progress, and logs of an analysis job."""
+    job = pipeline_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    return JobStatusResponse(**job.to_dict())
+
+
+@app.get("/api/v1/jobs/{job_id}/results")
+def get_job_results(job_id: str) -> Dict[str, Any]:
+    """Retrieve completed results and artifact metadata for an analysis job."""
+    job = pipeline_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if job.status.value != "COMPLETED":
+        raise HTTPException(status_code=400, detail=f"Job {job_id} is in status {job.status.value}, not COMPLETED")
+    return {
+        "job_id": job.job_id,
+        "selected_scenes": job.selected_scenes,
+        "artifacts": job.artifacts,
+        "summary": job.summary_results,
+    }
 
 
 @app.post("/api/v1/scenes/discover", response_model=SceneDiscoveryResponse)
@@ -175,7 +236,6 @@ def run_detection(req: BaselineDetectionRequest) -> BaselineDetectionResponse:
             detail=f"Raster shape mismatch: pre is {pre_arr.shape}, post is {post_arr.shape}."
         )
 
-    # Calculate transform from bounds or default
     if req.bounds and len(req.bounds) == 4:
         minx, miny, maxx, maxy = req.bounds
         transform = from_bounds(minx, miny, maxx, maxy, pre_arr.shape[1], pre_arr.shape[0])
@@ -206,7 +266,7 @@ def run_detection(req: BaselineDetectionRequest) -> BaselineDetectionResponse:
     gdf = result.to_geodataframe()
     geojson_features = json.loads(gdf.to_json()) if not gdf.empty else {"type": "FeatureCollection", "features": []}
 
-    valid_unc = result.uncertainty_score[result.valid_mask]
+    valid_unc = result.uncertainty_score[result.valid_mask & ~np.isnan(result.uncertainty_score)]
     unc_summary = {
         "mean_uncertainty": float(np.mean(valid_unc)) if len(valid_unc) > 0 else 1.0,
         "max_uncertainty": float(np.max(valid_unc)) if len(valid_unc) > 0 else 1.0,
@@ -229,7 +289,7 @@ def run_detection(req: BaselineDetectionRequest) -> BaselineDetectionResponse:
 
 @app.post("/api/v1/analysis/exposure", response_model=RoadExposureResponse)
 def analyze_exposure(req: RoadExposureRequest) -> RoadExposureResponse:
-    """Assess potential road network exposure and settlement isolation."""
+    """Assess potential road network exposure and scenario-based settlement isolation."""
     try:
         analyzer = RoadNetworkConnectivityAnalyzer(req.snapshot_date, req.event_date)
     except ValueError as e:
@@ -238,7 +298,6 @@ def analyze_exposure(req: RoadExposureRequest) -> RoadExposureResponse:
             detail=f"Temporal integrity violation: {str(e)}"
         )
 
-    # Load candidate flood polygons
     try:
         flood_gdf = gpd.GeoDataFrame.from_features(req.candidate_flood_geojson.get("features", []), crs="EPSG:4326")
     except Exception as e:
@@ -247,7 +306,6 @@ def analyze_exposure(req: RoadExposureRequest) -> RoadExposureResponse:
             detail=f"Invalid candidate flood GeoJSON: {e}"
         )
 
-    # Load roads GeoDataFrame
     if req.roads_geojson and "features" in req.roads_geojson:
         roads_gdf = gpd.GeoDataFrame.from_features(req.roads_geojson["features"], crs="EPSG:4326")
     else:
@@ -256,7 +314,6 @@ def analyze_exposure(req: RoadExposureRequest) -> RoadExposureResponse:
             detail="Pre-event roads GeoJSON is required."
         )
 
-    # Load settlements GeoDataFrame
     settlements_gdf = None
     if req.settlements_geojson and "features" in req.settlements_geojson:
         settlements_gdf = gpd.GeoDataFrame.from_features(req.settlements_geojson["features"], crs="EPSG:4326")
@@ -273,6 +330,42 @@ def analyze_exposure(req: RoadExposureRequest) -> RoadExposureResponse:
         exposed_bridges_count=summary.exposed_bridges_count,
         candidate_isolated_settlements_count=summary.candidate_isolated_settlements_count,
         candidate_isolated_settlements=summary.candidate_isolated_settlements,
-        disclaimer=summary.disclaimer,
+        disclaimer=summary.assumptions_and_disclaimer,
         exposed_roads_geojson=exposed_roads_json,
+    )
+
+
+@app.post("/api/v1/validation/benchmark", response_model=ValidationBenchmarkResponse)
+def run_validation_benchmark(req: ValidationBenchmarkRequest) -> ValidationBenchmarkResponse:
+    """Evaluate predicted flood map against held-out independent reference data."""
+    pred = np.array(req.predicted_binary_mask, dtype=np.uint8)
+    ref = np.array(req.reference_binary_mask, dtype=np.uint8)
+    if pred.shape != ref.shape:
+        raise HTTPException(status_code=400, detail="Prediction and reference masks must have identical dimensions.")
+
+    prov = DataProvenance(
+        dataset_name=req.reference_dataset_name,
+        dataset_role=DatasetRole.INDEPENDENT_VALIDATION,
+        source_uri="https://emergency.copernicus.eu/mapping/list-of-activations-rapid/EMSR927",
+        acquisition_or_snapshot_date=req.event_date,
+        event_date=req.event_date,
+        license="Copernicus Open Access Policy",
+        description="Held-out reference delineation for independent validation benchmark.",
+    )
+    benchmark = IndependentValidationBenchmark(prov)
+    valid_mask = np.ones_like(pred, dtype=bool)
+    report = benchmark.evaluate_raster_alignment_and_metrics(pred, ref, valid_mask, req.pixel_area_m2)
+
+    return ValidationBenchmarkResponse(
+        reference_dataset_name=report.reference_dataset_name,
+        reference_activation_code=report.reference_activation_code,
+        valid_evaluated_area_km2=report.valid_evaluated_area_km2,
+        iou_score=report.iou_score,
+        precision_score=report.precision_score,
+        recall_score=report.recall_score,
+        f1_score=report.f1_score,
+        accuracy_score=report.accuracy_score,
+        confusion_matrix=report.confusion_matrix,
+        methodological_notes=report.methodological_notes,
+        limitations=report.limitations,
     )

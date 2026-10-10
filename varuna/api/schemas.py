@@ -100,6 +100,8 @@ class CreateJobRequest(BaseModel):
     post_window_days: int = Field(15, ge=1, le=60)
     water_threshold_db: float = -3.5
     debris_threshold_db: float = 3.5
+    pre_raster_path: Optional[str] = None
+    post_raster_path: Optional[str] = None
 
 
 class JobStatusResponse(BaseModel):

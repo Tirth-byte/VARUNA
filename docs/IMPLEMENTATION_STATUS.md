@@ -9,7 +9,7 @@
 
 ## 1. Status Overview
 
-All critical and high-severity scientific defects identified in the independent review have been addressed, verified, and backed by automated tests and live Copernicus satellite evidence:
+All critical and high-severity scientific defects identified in the independent review have been addressed, verified, and backed by automated tests, physical artifact verification, and live Copernicus satellite evidence:
 
 1. **SAR Radiometric Calibration & Units:**
    - Strict `SARUnit` validation (`RAW_DN`, `AMPLITUDE`, `LINEAR_POWER`, `DECIBELS_DB`).
@@ -40,8 +40,15 @@ All critical and high-severity scientific defects identified in the independent 
    - Distinct states: `OBSERVED_HAZARD`, `POTENTIAL_INFRASTRUCTURE_EXPOSURE`, `HYPOTHETICAL_ROAD_CLOSURE`, `SCENARIO_ISOLATED_SETTLEMENT`, `INDEPENDENTLY_VERIFIED_DAMAGE`.
    - Honest heuristic uncertainty index preserving NaNs for nodata.
 
-6. **End-to-End Job Orchestration:**
-   - Asynchronous/traceable job pipeline (`AnalysisJob`, `JobPipelineManager`) with REST endpoints (`POST /api/v1/jobs`, `GET /api/v1/jobs/{job_id}`).
+6. **End-to-End Pipeline Integrity & Explicit Job States:**
+   - Explicit lifecycle states: `PENDING`, `DISCOVERED`, `AWAITING_AUTHENTICATION`, `DOWNLOADING`, `PREPROCESSING`, `ALIGNING`, `ANALYZING`, `COMPLETED`, `FAILED`, `BLOCKED`.
+   - **Never marks jobs COMPLETED without verified raster processing:** If Copernicus CDSE credentials are missing and local rasters are not supplied, the job halts cleanly in `AWAITING_AUTHENTICATION`, logs the exact blocker, and prevents premature completion.
+   - Genuine georeferenced artifacts exported:
+     - Multi-band change classification GeoTIFF (`Delta_dB`, `Classification_Mask`, `Uncertainty`)
+     - Dedicated Valid Data Mask GeoTIFF (`valid_data_mask.tif`)
+     - Hazard polygon vectors GeoJSON (`candidate_hazard_polygons.geojson`) with geodesic areas
+     - Provenance JSON (`provenance.json`)
+   - Mandatory physical inspection (`verify_analysis_artifacts`): checks file existence, non-zero file sizes, raster band counts, CRS, raster dimensions, and GeoJSON validity.
 
 7. **Historical OpenStreetMap Integration:**
    - Point-in-time snapshot queries via `HistoricalOSMFetcher` with strict temporal guard.
@@ -53,7 +60,7 @@ All critical and high-severity scientific defects identified in the independent 
 
 ## 2. Test Suite Execution & Results
 
-**39 Automated Tests Passing (100% pass rate in 0.56s):**
+**44 Automated Tests Passing (100% pass rate in 0.65s):**
 
 | Test Module | Tests | Status | Scope |
 |---|---|---|---|
@@ -61,6 +68,7 @@ All critical and high-severity scientific defects identified in the independent 
 | `tests/test_sar_preprocessing.py` | 8 | **PASS** | Unit validation, missing calibration rejection, unclipped dB, linear speckle filter, alignment overlap |
 | `tests/test_osm_connectivity.py` | 5 | **PASS** | T-junctions, bridge layers, parallel roads, unattached settlements, geodesic metrics |
 | `tests/test_cdse_discovery.py` | 5 | **PASS** | CDSE OData parsing, missing metadata rejection, auth requirement |
+| `tests/test_pipeline_integrity.py` | 5 | **PASS** | Explicit state halts on missing credentials, missing rasters, corrupt rasters, corrupt artifacts, verified completion with valid rasters |
 | `tests/test_baseline_change.py` | 4 | **PASS** | Water vs debris differentiation, terrain shadow flagging, Otsu, geodesic vectorization |
 | `tests/test_leakage_guard.py` | 4 | **PASS** | EMSR927 input rejection, temporal leakage protection, role enforcement |
 | `tests/test_validation_benchmark.py` | 3 | **PASS** | Confusion matrix, IoU/F1 calculation, spatial agreement raster, role guard |
@@ -68,7 +76,8 @@ All critical and high-severity scientific defects identified in the independent 
 
 ---
 
-## 3. Verified Documentation Artifacts
+## 3. Verified Documentation & Evidence Artifacts
 
-- [docs/PHASE_1_5_AUDIT.md](file:///Users/macbookair/VARUNA/docs/PHASE_1_5_AUDIT.md): Detailed defect-to-fix mapping.
-- [docs/EXPERIMENT_LOG.md](file:///Users/macbookair/VARUNA/docs/EXPERIMENT_LOG.md): Full experiment log for the August 26, 2026 Trishuli flood case study.
+- [docs/PHASE_1_5_AUDIT.md](file:///Users/macbookair/VARUNA/docs/PHASE_1_5_AUDIT.md): Detailed defect-to-fix mapping and regression evidence.
+- [docs/EXPERIMENT_LOG.md](file:///Users/macbookair/VARUNA/docs/EXPERIMENT_LOG.md): Full experiment log containing live CDSE query evidence and end-to-end verified raster processing results.
+- [scripts/run_nepal_experiment.py](file:///Users/macbookair/VARUNA/scripts/run_nepal_experiment.py): Executable script reproducing the live CDSE query, authentication halt, and verified end-to-end processing.

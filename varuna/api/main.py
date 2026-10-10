@@ -112,6 +112,8 @@ def submit_analysis_job(req: CreateJobRequest) -> JobStatusResponse:
         post_window_days=req.post_window_days,
         water_threshold_db=req.water_threshold_db,
         debris_threshold_db=req.debris_threshold_db,
+        pre_raster_path=req.pre_raster_path,
+        post_raster_path=req.post_raster_path,
     )
     # Execute job
     try:

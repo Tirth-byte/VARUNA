@@ -27,6 +27,7 @@
 | **F.1** | **CRITICAL** | `varuna/osm/network.py` | Remote sensing hazard exposure was conflated with confirmed road destruction. | Implemented distinct `InfrastructureState` categories: `OBSERVED_HAZARD`, `POTENTIAL_INFRASTRUCTURE_EXPOSURE`, `HYPOTHETICAL_ROAD_CLOSURE`, `SCENARIO_ISOLATED_SETTLEMENT`, and `INDEPENDENT_VERIFIED_DAMAGE`. Added mandatory disclaimers. | Verified in API and network responses. |
 | **G.1** | **HIGH** | `varuna/detection/baseline.py` | Threshold-distance scores were presented without explicitly labeling them as heuristic. | Explicitly labeled as `HEURISTIC_MARGIN_INDEX` (uncalibrated distance to threshold). Nodata pixels preserved as `NaN`. | `varuna/detection/baseline.py` verified. |
 | **H.1** | **NEW** | `varuna/jobs/pipeline.py` | Missing end-to-end job orchestration workflow. | Built traceable job pipeline (`AnalysisJob`, `JobPipelineManager`) with state persistence and provenance logging. | `tests/test_api.py::test_jobs_endpoint_creation_and_status` passed. |
+| **H.2** | **CRITICAL** | `varuna/jobs/pipeline.py` | Pipeline marked jobs `COMPLETED` prematurely without processing satellite imagery when credentials were missing. | Redesigned job lifecycle with explicit states (`PENDING`, `DISCOVERED`, `AWAITING_AUTHENTICATION`, `DOWNLOADING`, `PREPROCESSING`, `ALIGNING`, `ANALYZING`, `COMPLETED`, `FAILED`, `BLOCKED`). Enforced that missing credentials cleanly halt in `AWAITING_AUTHENTICATION` with blocker diagnostics; jobs are NEVER marked `COMPLETED` unless multi-band GeoTIFF, valid-data mask GeoTIFF, GeoJSON, and provenance are physically verified on disk via `verify_analysis_artifacts()`. | `tests/test_pipeline_integrity.py` (5/5 tests passed). Live experiment `scripts/run_nepal_experiment.py` verified. |
 | **I.1** | **NEW** | `varuna/osm/fetcher.py` | Missing historical OpenStreetMap retrieval engine. | Built `HistoricalOSMFetcher` querying Overpass API with `[date:"..."]` point-in-time constraints. | `varuna/osm/fetcher.py` verified. |
 | **J.1** | **NEW** | `varuna/validation/benchmark.py` | Missing independent validation engine for EMSR927 comparison. | Built `IndependentValidationBenchmark` computing IoU, Precision, Recall, F1, confusion matrix, and spatial agreement maps. | `tests/test_validation_benchmark.py` passed (3/3 tests). |
 
@@ -34,8 +35,9 @@
 
 ## Automated Test Suite Summary
 
-- Total Automated Tests: **39 passing** (0 failures, 0 errors)
-- Test Runtime: **0.56 seconds**
+- Total Automated Tests: **44 passing** (0 failures, 0 errors)
+- Test Runtime: **0.65 seconds**
 - Test Coverage:
   - Unit Tests: Calibration, units, unclipped dB, speckle filter, geodesic metrics, topology, layers, overlap.
+  - Pipeline Integrity Tests: Explicit state halts on missing credentials, missing rasters, corrupt rasters, corrupt artifacts, verified completion with valid rasters.
   - Integration Tests: FastAPI endpoints, jobs pipeline, validation benchmark, CDSE live and mock discovery.

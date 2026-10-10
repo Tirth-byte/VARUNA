@@ -179,20 +179,23 @@ class TestFastAPIEndpoints(unittest.TestCase):
         )
 
         with patch("varuna.jobs.pipeline.CDSEDiscoveryService.discover_compatible_pair", return_value=dummy_rec):
-            resp = self.client.post("/api/v1/jobs", json=payload)
-            self.assertEqual(resp.status_code, 200)
-            data = resp.json()
-            job_id = data["job_id"]
-            self.assertIn("job_id", data)
-            self.assertEqual(data["status"], "COMPLETED")
-            self.assertIn("pre_scene_id", data["selected_scenes"])
-            self.assertEqual(data["selected_scenes"]["relative_orbit"], 85)
+            with patch("varuna.acquisition.download.CDSEDownloader.has_credentials", return_value=False):
+                resp = self.client.post("/api/v1/jobs", json=payload)
+                self.assertEqual(resp.status_code, 200)
+                data = resp.json()
+                job_id = data["job_id"]
+                self.assertIn("job_id", data)
+                # Must be AWAITING_AUTHENTICATION because credentials are missing
+                self.assertEqual(data["status"], "AWAITING_AUTHENTICATION")
+                self.assertIn("pre_scene_id", data["selected_scenes"])
+                self.assertEqual(data["selected_scenes"]["relative_orbit"], 85)
 
-            # Check status endpoint
-            resp_status = self.client.get(f"/api/v1/jobs/{job_id}")
-            self.assertEqual(resp_status.status_code, 200)
-            status_data = resp_status.json()
-            self.assertEqual(status_data["job_id"], job_id)
+                # Check status endpoint
+                resp_status = self.client.get(f"/api/v1/jobs/{job_id}")
+                self.assertEqual(resp_status.status_code, 200)
+                status_data = resp_status.json()
+                self.assertEqual(status_data["job_id"], job_id)
+                self.assertEqual(status_data["status"], "AWAITING_AUTHENTICATION")
 
 
 if __name__ == "__main__":

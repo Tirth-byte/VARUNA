@@ -1,9 +1,14 @@
 """End-to-End Analysis Workflow & Traceable Job Execution Engine.
 
 Orchestrates the scientific pipeline:
-AOI & Date Validation -> CDSE Discovery -> Scene Pairing -> Preprocessing ->
-Common Analysis Grid Alignment -> Baseline Change Detection -> Infrastructure Exposure ->
-Artifact Export (GeoTIFF, GeoJSON, Provenance Log).
+AOI & Date Validation -> CDSE Discovery -> Product Retrieval / Pre-existing Raster Ingestion ->
+SAR Radiometric Calibration -> Multi-Look Lee Speckle Filtering -> Common Analysis Grid Alignment ->
+Multi-Class Change Detection -> Infrastructure Exposure -> Verification of Exported Artifacts.
+
+NON-NEGOTIABLE SCIENTIFIC RULE:
+A job is NEVER marked COMPLETED unless genuine georeferenced analysis artifacts
+(GeoTIFF, GeoJSON, Provenance) have been generated on disk, inspected, and verified.
+Missing credentials halt the pipeline in AWAITING_AUTHENTICATION / BLOCKED.
 """
 
 from __future__ import annotations
@@ -28,13 +33,17 @@ from varuna.preprocessing.sar import (
     calibrate_sar_raster,
     lee_speckle_filter,
     create_valid_mask,
+    linear_to_db,
+    db_to_linear,
 )
 from varuna.preprocessing.alignment import (
     CommonAnalysisGrid,
     align_pair_to_common_analysis_grid,
+    inspect_raster,
 )
 from varuna.detection.baseline import (
     BaselineDetectionConfig,
+    BaselineDetectionResult,
     run_baseline_detection,
 )
 from varuna.osm.network import RoadNetworkConnectivityAnalyzer
@@ -43,10 +52,72 @@ logger = logging.getLogger("varuna.jobs.pipeline")
 
 
 class JobStatus(str, Enum):
+    """Explicit lifecycle states for flood intelligence analysis jobs."""
     PENDING = "PENDING"
-    RUNNING = "RUNNING"
+    DISCOVERED = "DISCOVERED"
+    AWAITING_AUTHENTICATION = "AWAITING_AUTHENTICATION"
+    DOWNLOADING = "DOWNLOADING"
+    PREPROCESSING = "PREPROCESSING"
+    ALIGNING = "ALIGNING"
+    ANALYZING = "ANALYZING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    BLOCKED = "BLOCKED"
+
+
+class ArtifactVerificationError(RuntimeError):
+    """Raised when exported geospatial analysis artifacts fail structural or physical validation."""
+    pass
+
+
+def verify_analysis_artifacts(artifacts: Dict[str, str]) -> None:
+    """Strictly verify that required geospatial artifacts exist, are readable, and non-empty."""
+    required = ["geotiff_change_mask", "geojson_candidates", "provenance"]
+    for req in required:
+        if req not in artifacts:
+            raise ArtifactVerificationError(f"Missing required artifact '{req}' in pipeline outputs.")
+        path = Path(artifacts[req])
+        if not path.exists():
+            raise ArtifactVerificationError(f"Artifact file '{path}' does not exist on disk.")
+        if path.stat().st_size == 0:
+            raise ArtifactVerificationError(f"Artifact file '{path}' is empty (0 bytes).")
+
+    # Verify GeoTIFF change mask is readable and has valid geospatial properties
+    geotiff_path = Path(artifacts["geotiff_change_mask"])
+    try:
+        with rasterio.open(geotiff_path) as src:
+            if src.count < 3:
+                raise ArtifactVerificationError(f"GeoTIFF must have at least 3 bands, got {src.count}")
+            if not src.crs:
+                raise ArtifactVerificationError(f"GeoTIFF has missing CRS: {geotiff_path}")
+            if src.width <= 0 or src.height <= 0:
+                raise ArtifactVerificationError(f"Invalid GeoTIFF dimensions: {src.width}x{src.height}")
+    except Exception as e:
+        raise ArtifactVerificationError(f"Failed to read exported GeoTIFF: {e}") from e
+
+    # Verify optional/exported valid data mask GeoTIFF if present
+    if "geotiff_valid_mask" in artifacts:
+        valid_mask_path = Path(artifacts["geotiff_valid_mask"])
+        if not valid_mask_path.exists() or valid_mask_path.stat().st_size == 0:
+            raise ArtifactVerificationError(f"Valid mask GeoTIFF '{valid_mask_path}' is missing or empty.")
+        try:
+            with rasterio.open(valid_mask_path) as vm_src:
+                if not vm_src.crs:
+                    raise ArtifactVerificationError(f"Valid mask GeoTIFF has missing CRS: {valid_mask_path}")
+                if vm_src.width <= 0 or vm_src.height <= 0:
+                    raise ArtifactVerificationError(f"Invalid valid mask dimensions: {vm_src.width}x{vm_src.height}")
+        except Exception as e:
+            raise ArtifactVerificationError(f"Failed to read exported valid mask GeoTIFF: {e}") from e
+
+    # Verify GeoJSON
+    geojson_path = Path(artifacts["geojson_candidates"])
+    try:
+        with open(geojson_path) as f:
+            data = json.load(f)
+            if "type" not in data or "features" not in data:
+                raise ArtifactVerificationError(f"Invalid GeoJSON structure in {geojson_path}")
+    except Exception as e:
+        raise ArtifactVerificationError(f"Failed to read exported GeoJSON: {e}") from e
 
 
 class AnalysisJob:
@@ -62,6 +133,8 @@ class AnalysisJob:
         post_window_days: int = 15,
         water_threshold_db: float = -3.5,
         debris_threshold_db: float = 3.5,
+        pre_raster_path: Optional[Path] = None,
+        post_raster_path: Optional[Path] = None,
     ):
         self.job_id = job_id
         self.aoi_geojson = aoi_geojson
@@ -71,6 +144,8 @@ class AnalysisJob:
         self.post_window_days = post_window_days
         self.water_threshold_db = water_threshold_db
         self.debris_threshold_db = debris_threshold_db
+        self.pre_raster_path = pre_raster_path
+        self.post_raster_path = post_raster_path
 
         self.status = JobStatus.PENDING
         self.progress_percent = 0
@@ -128,6 +203,8 @@ class JobPipelineManager:
         post_window_days: int = 15,
         water_threshold_db: float = -3.5,
         debris_threshold_db: float = 3.5,
+        pre_raster_path: Optional[str | Path] = None,
+        post_raster_path: Optional[str | Path] = None,
     ) -> AnalysisJob:
         """Initialize new analysis job and validate input parameters."""
         job_id = str(uuid.uuid4())
@@ -141,8 +218,10 @@ class JobPipelineManager:
             post_window_days=post_window_days,
             water_threshold_db=water_threshold_db,
             debris_threshold_db=debris_threshold_db,
+            pre_raster_path=Path(pre_raster_path) if pre_raster_path else None,
+            post_raster_path=Path(post_raster_path) if post_raster_path else None,
         )
-        job.log("Job created and validated.")
+        job.log("Job created and initialized in PENDING state.")
         job.save_state()
         self._jobs[job_id] = job
         return job
@@ -176,25 +255,32 @@ class JobPipelineManager:
                 logger.error(f"Error loading job {job_id} from disk: {e}")
         return None
 
-    def execute_job(self, job_id: str, discovery_service: Optional[CDSEDiscoveryService] = None) -> AnalysisJob:
-        """Run the end-to-end processing pipeline for a job."""
+    def execute_job(
+        self,
+        job_id: str,
+        discovery_service: Optional[CDSEDiscoveryService] = None,
+        override_pre_raster: Optional[Path] = None,
+        override_post_raster: Optional[Path] = None,
+    ) -> AnalysisJob:
+        """Run the end-to-end processing pipeline for a job.
+
+        State Transitions:
+        PENDING -> DISCOVERED -> [AWAITING_AUTHENTICATION | DOWNLOADING] ->
+        PREPROCESSING -> ALIGNING -> ANALYZING -> COMPLETED (or FAILED / BLOCKED).
+        """
         job = self.get_job(job_id)
         if not job:
             raise KeyError(f"Job {job_id} not found.")
 
-        job.status = JobStatus.RUNNING
-        job.progress_percent = 5
         job.log("Starting analysis pipeline execution.")
 
         try:
             # Step 1: Validate AOI geometry
-            job.log("Validating AOI geometry.")
             aoi_poly = shape(job.aoi_geojson)
             if not aoi_poly.is_valid:
                 aoi_poly = aoi_poly.buffer(0)
             if aoi_poly.is_empty or aoi_poly.area <= 0:
                 raise ValueError("Invalid AOI polygon: area must be strictly positive.")
-            job.progress_percent = 15
 
             # Step 2: CDSE Scene Discovery
             job.log("Querying Copernicus Data Space Ecosystem for compatible Sentinel-1 pairs.")
@@ -219,61 +305,216 @@ class JobPipelineManager:
                 "temporal_baseline_days": rec.temporal_baseline_days,
                 "scientific_rationale": rec.scientific_rationale,
             }
+            job.status = JobStatus.DISCOVERED
+            job.progress_percent = 25
             job.log(f"Discovered matching orbit pair (Relative Orbit {rec.relative_orbit}, {rec.orbit_direction}).")
-            job.progress_percent = 35
+            job.save_state()
 
-            # Step 3: Product Retrieval Check
-            job.log("Verifying Sentinel-1 product retrieval status.")
-            downloader = CDSEDownloader()
-            has_creds = downloader.has_credentials()
+            # Step 3: Determine raster source (local inputs vs CDSE download)
+            pre_path = override_pre_raster or job.pre_raster_path
+            post_path = override_post_raster or job.post_raster_path
 
-            # Record provenance and pipeline metadata
-            provenance_file = job.output_dir / "provenance.json"
+            if not pre_path or not post_path or not pre_path.exists() or not post_path.exists():
+                # Attempt authenticated download from CDSE
+                downloader = CDSEDownloader()
+                if not downloader.has_credentials():
+                    job.status = JobStatus.AWAITING_AUTHENTICATION
+                    job.progress_percent = 30
+                    msg = (
+                        "Authentication required: CDSE credentials (CDSE_USERNAME / CDSE_PASSWORD) not configured in environment. "
+                        "Binary Sentinel-1 product download halted at authentication boundary. "
+                        "To process satellite rasters, configure .env with Copernicus credentials "
+                        "or supply pre-downloaded scene paths (pre_raster_path / post_raster_path)."
+                    )
+                    job.log(msg)
+                    job.error_message = msg
+                    job.summary_results = {
+                        "stage_reached": "SCENE_DISCOVERY_VERIFIED",
+                        "discovery_successful": True,
+                        "selected_pair": job.selected_scenes,
+                        "blocker": "Authentication required for binary satellite data transfer.",
+                    }
+                    job.save_state()
+                    # Pipeline safely halts in AWAITING_AUTHENTICATION. NEVER returns COMPLETED!
+                    return job
+
+                # Credentials present: perform download
+                job.status = JobStatus.DOWNLOADING
+                job.progress_percent = 35
+                job.log(f"Downloading pre-event scene {rec.before_scene.cdse_id}...")
+                raw_dir = job.output_dir / "raw"
+                pre_path = downloader.download_product(rec.before_scene.cdse_id, raw_dir, rec.before_scene.scene_id)
+                job.log(f"Downloading post-event scene {rec.after_scene.cdse_id}...")
+                post_path = downloader.download_product(rec.after_scene.cdse_id, raw_dir, rec.after_scene.scene_id)
+
+            # Step 4: Preprocessing (Calibration, Filtering, Masking)
+            job.status = JobStatus.PREPROCESSING
+            job.progress_percent = 50
+            job.log("Executing SAR preprocessing: radiometric calibration and Lee speckle filtering.")
+
+            prep_dir = job.output_dir / "preprocessed"
+            prep_dir.mkdir(parents=True, exist_ok=True)
+
+            # Process Pre-event
+            cal_pre_path = prep_dir / "pre_calibrated.tif"
+            cal_post_path = prep_dir / "post_calibrated.tif"
+
+            self._preprocess_raster_file(pre_path, cal_pre_path)
+            self._preprocess_raster_file(post_path, cal_post_path)
+
+            # Step 5: Common Analysis Grid Alignment
+            job.status = JobStatus.ALIGNING
+            job.progress_percent = 65
+            job.log("Aligning observations onto Common Analysis Grid (CAG).")
+
+            aligned_dir = job.output_dir / "aligned"
+            aligned_pre, aligned_post, joint_valid, grid = align_pair_to_common_analysis_grid(
+                pre_path=cal_pre_path,
+                post_path=cal_post_path,
+                output_dir=aligned_dir,
+            )
+
+            # Step 6: Multi-Class Change Detection Analysis
+            job.status = JobStatus.ANALYZING
+            job.progress_percent = 80
+            job.log("Executing baseline change detection and uncertainty quantification.")
+
+            with rasterio.open(aligned_pre) as src_pre, rasterio.open(aligned_post) as src_post:
+                arr_pre_db = src_pre.read(1)
+                arr_post_db = src_post.read(1)
+                transform = src_pre.transform
+                crs_str = src_pre.crs.to_string() if src_pre.crs else "EPSG:4326"
+
+            cfg = BaselineDetectionConfig(
+                water_threshold_db=job.water_threshold_db,
+                debris_threshold_db=job.debris_threshold_db,
+            )
+            result = run_baseline_detection(
+                pre_db=arr_pre_db,
+                post_db=arr_post_db,
+                transform=transform,
+                crs=crs_str,
+                config=cfg,
+            )
+
+            # Step 7: Export Georeferenced Artifacts
+            job.log("Exporting classified GeoTIFF, candidate GeoJSON, and provenance.")
+            results_dir = job.output_dir / "results"
+            results_dir.mkdir(parents=True, exist_ok=True)
+
+            geotiff_path = results_dir / "flood_change_classification.tif"
+            result.save_geotiff(geotiff_path)
+            job.artifacts["geotiff_change_mask"] = str(geotiff_path)
+
+            valid_mask_path = results_dir / "valid_data_mask.tif"
+            vm_profile = {
+                "driver": "GTiff",
+                "height": int(result.classification_mask.shape[0]),
+                "width": int(result.classification_mask.shape[1]),
+                "count": 1,
+                "dtype": rasterio.uint8,
+                "crs": result.crs,
+                "transform": result.transform,
+                "nodata": 0,
+                "compress": "lzw",
+            }
+            with rasterio.open(valid_mask_path, "w", **vm_profile) as dst:
+                dst.write(result.valid_mask.astype(np.uint8), 1)
+                dst.set_band_description(1, "Valid_Data_Mask (1=Valid, 0=NoData)")
+            job.artifacts["geotiff_valid_mask"] = str(valid_mask_path)
+
+            geojson_path = results_dir / "candidate_hazard_polygons.geojson"
+            gdf = result.to_geodataframe()
+            if not gdf.empty:
+                gdf.to_file(geojson_path, driver="GeoJSON")
+            else:
+                with open(geojson_path, "w") as f:
+                    json.dump({"type": "FeatureCollection", "features": []}, f)
+            job.artifacts["geojson_candidates"] = str(geojson_path)
+
+            # Step 8: Save Provenance
+            provenance_file = results_dir / "provenance.json"
             prov_data = {
                 "job_id": job.job_id,
                 "aoi_wkt": aoi_poly.wkt,
                 "event_date": job.event_date.isoformat(),
                 "selected_scenes": job.selected_scenes,
-                "copernicus_credentials_configured": has_creds,
-                "executed_at": datetime.now(timezone.utc).isoformat(),
+                "common_grid": {
+                    "crs": grid.crs,
+                    "bounds": grid.bounds,
+                    "resolution": grid.resolution,
+                    "width": grid.width,
+                    "height": grid.height,
+                },
+                "detection_thresholds": {
+                    "water_threshold_db": job.water_threshold_db,
+                    "debris_threshold_db": job.debris_threshold_db,
+                },
+                "summary_statistics": result.summary_statistics,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
             }
             with open(provenance_file, "w") as f:
                 json.dump(prov_data, f, indent=2)
             job.artifacts["provenance"] = str(provenance_file)
-            job.progress_percent = 50
 
-            # Step 4: If live scene binaries are not present locally and downloading is unauthenticated,
-            # we report the exact external blocker rather than faking data!
-            if not has_creds:
-                job.log(
-                    "Copernicus credentials (CDSE_USERNAME / CDSE_PASSWORD) not configured in environment. "
-                    "Full raw Level-1 GRD product downloading stopped at authenticated boundary. "
-                    "Scene discovery and orbit validation succeeded with authentic Copernicus metadata."
-                )
-                job.status = JobStatus.COMPLETED
-                job.progress_percent = 100
-                job.completed_at = datetime.now(timezone.utc)
-                job.summary_results = {
-                    "stage_reached": "SCENE_DISCOVERY_AND_PAIR_SELECTION_VERIFIED",
-                    "discovery_successful": True,
-                    "selected_pair": job.selected_scenes,
-                    "blocker": "CDSE authentication credentials required for binary raw raster transfer.",
-                }
-                job.save_state()
-                return job
+            # Step 9: STRICT ARTIFACT VERIFICATION
+            # A job is NEVER marked COMPLETED unless all artifacts are physically verified!
+            job.log("Verifying physical analysis artifacts on disk.")
+            verify_analysis_artifacts(job.artifacts)
 
-            # If credentials are present, proceed to download and processing
-            # (Handled in full binary pipeline)
-            job.progress_percent = 100
+            # Verification succeeded!
             job.status = JobStatus.COMPLETED
+            job.progress_percent = 100
             job.completed_at = datetime.now(timezone.utc)
+            job.summary_results = result.summary_statistics
+            job.log("Job successfully COMPLETED. All georeferenced artifacts verified.")
             job.save_state()
             return job
 
         except Exception as e:
             job.status = JobStatus.FAILED
             job.error_message = str(e)
-            job.log(f"Pipeline error: {str(e)}")
+            job.log(f"Pipeline failure: {str(e)}")
             job.completed_at = datetime.now(timezone.utc)
             job.save_state()
             raise
+
+    def _preprocess_raster_file(self, input_path: Path, output_path: Path) -> None:
+        """Calibrate and speckle filter a single SAR raster file to decibels (dB)."""
+        with rasterio.open(input_path) as src:
+            arr = src.read(1).astype(np.float32)
+            profile = src.profile.copy()
+            nodata = src.nodata
+
+        # If data is non-negative and in range of Digital Numbers, calibrate from DN
+        # Check if already in dB (negative values like -15 dB)
+        min_val = np.nanmin(arr[arr != (nodata or -9999.0)]) if np.any(arr != (nodata or -9999.0)) else 0.0
+        max_val = np.nanmax(arr[arr != (nodata or -9999.0)]) if np.any(arr != (nodata or -9999.0)) else 0.0
+
+        if min_val >= 0 and max_val > 10.0:
+            # Raw DN / amplitude: calibrate to linear Sigma0 using nominal scalar
+            linear_sigma0 = calibrate_sar_raster(
+                arr, input_unit=SARUnit.RAW_DN, calibration_constant=100.0, output_unit=SARUnit.LINEAR_POWER
+            )
+        elif min_val < -1.0:
+            # Already in dB: convert to linear for filtering
+            linear_sigma0 = db_to_linear(arr)
+        else:
+            # Linear power
+            linear_sigma0 = np.maximum(arr, 1e-7)
+
+        # Speckle filter in linear domain
+        filtered_linear = lee_speckle_filter(
+            linear_sigma0, window_size=5, num_looks=4.4, input_unit=SARUnit.LINEAR_POWER
+        )
+
+        # Convert to decibels for change detection
+        db_array = linear_to_db(filtered_linear)
+        db_clean = np.where(np.isnan(db_array), -9999.0, db_array)
+
+        profile.update(dtype=rasterio.float32, count=1, nodata=-9999.0)
+        if not profile.get("tiled", False):
+            profile.pop("blockxsize", None)
+            profile.pop("blockysize", None)
+        with rasterio.open(output_path, "w", **profile) as dst:
+            dst.write(db_clean.astype(np.float32), 1)

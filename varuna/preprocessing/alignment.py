@@ -61,8 +61,8 @@ class CommonAnalysisGrid:
         dx, dy = abs(resolution[0]), abs(resolution[1])
         if minx >= maxx or miny >= maxy:
             raise ValueError(f"Invalid bounding box: {bounds}")
-        width = int(np.ceil((maxx - minx) / dx))
-        height = int(np.ceil((maxy - miny) / dy))
+        width = max(1, int(np.round((maxx - minx) / dx)))
+        height = max(1, int(np.round((maxy - miny) / dy)))
         # Ensure snapped bounds
         snapped_maxx = minx + width * dx
         snapped_miny = maxy - height * dy

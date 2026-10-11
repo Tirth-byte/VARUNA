@@ -26,7 +26,7 @@ import geopandas as gpd
 from shapely.geometry import shape, Polygon
 import rasterio
 
-from varuna.acquisition.cdse import CDSEDiscoveryService, ScenePairRecommendation
+from varuna.acquisition.cdse import CDSEDiscoveryService, ScenePairRecommendation, CDSEDiscoveryError
 from varuna.acquisition.download import CDSEDownloader, AuthenticationRequiredError
 from varuna.preprocessing.sar import (
     SARUnit,

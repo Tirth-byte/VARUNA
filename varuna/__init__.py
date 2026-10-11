@@ -3,6 +3,12 @@
 Track B: Mapping Flood Damage from Space (Multimodal AI Hackathon 2026).
 """
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from varuna.contracts import RadarScene, validate_pair, validate_osm_snapshot
 
 __version__ = "0.1.0"

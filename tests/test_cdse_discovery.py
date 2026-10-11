@@ -1,5 +1,6 @@
 """Unit and integration tests for Sentinel-1 CDSE discovery and orbit validation."""
 
+import os
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -97,10 +98,11 @@ class TestCDSEDiscovery(unittest.TestCase):
                 service.discover_compatible_pair(self.trishuli_aoi, self.event_date)
 
     def test_downloader_requires_credentials(self):
-        downloader = CDSEDownloader(username=None, password=None, client_id=None, client_secret=None)
-        self.assertFalse(downloader.has_credentials())
-        with self.assertRaises(AuthenticationRequiredError):
-            downloader.acquire_token()
+        with patch.dict(os.environ, {"CDSE_USERNAME": "", "CDSE_PASSWORD": "", "CDSE_CLIENT_SECRET": ""}):
+            downloader = CDSEDownloader(username=None, password=None, client_id=None, client_secret=None)
+            self.assertFalse(downloader.has_credentials())
+            with self.assertRaises(AuthenticationRequiredError):
+                downloader.acquire_token()
 
     def test_missing_metadata_raises_error(self):
         bad_item = {

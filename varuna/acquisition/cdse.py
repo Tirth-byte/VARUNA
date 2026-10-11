@@ -195,18 +195,35 @@ class CDSEDiscoveryService:
             "$expand": "Attributes",
         }
 
-        client = self._get_client()
-        try:
-            resp = client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-            raw_items = data.get("value", [])
-        except httpx.HTTPStatusError as e:
-            logger.error(f"CDSE OData HTTP error: {e.response.status_code} - {e.response.text}")
-            raise CDSEDiscoveryError(f"CDSE catalogue request failed: HTTP {e.response.status_code}") from e
-        except Exception as e:
-            logger.error(f"CDSE network request failed: {e}")
-            raise CDSEDiscoveryError(f"Could not connect to CDSE catalogue: {str(e)}") from e
+        raw_items = []
+        last_err = None
+        for attempt in range(1, 4):
+            client = self._get_client()
+            try:
+                resp = client.get(url, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+                raw_items = data.get("value", [])
+                last_err = None
+                break
+            except httpx.HTTPStatusError as e:
+                logger.error(f"CDSE OData HTTP error: {e.response.status_code} - {e.response.text}")
+                raise CDSEDiscoveryError(f"CDSE catalogue request failed: HTTP {e.response.status_code}") from e
+            except Exception as e:
+                last_err = e
+                logger.warning(f"CDSE network request attempt {attempt}/3 failed: {e}. Retrying...")
+                if self._client:
+                    try:
+                        self._client.close()
+                    except Exception:
+                        pass
+                    self._client = None
+                import time
+                time.sleep(1.0 * attempt)
+
+        if last_err is not None:
+            logger.error(f"CDSE network request failed after 3 attempts: {last_err}")
+            raise CDSEDiscoveryError(f"Could not connect to CDSE catalogue: {str(last_err)}") from last_err
 
         scenes = []
         for item in raw_items:

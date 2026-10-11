@@ -56,16 +56,25 @@ All critical and high-severity scientific defects identified in the independent 
 8. **Independent Reference Validation:**
    - Held-out benchmarking against EMSR927 computing IoU, Precision, Recall, F1, confusion matrix, and spatial agreement maps.
 
+9. **Authentic Sentinel-1 Level-1 GRD Engine (Phase 1.6):**
+   - SAFE package inspection and integrity validation (`manifest.safe`, checks measurement TIFFs and annotation XMLs).
+   - Real radiometric calibration using ESA Level-1 calibration XML vectors (`annotation/calibration/calibration-*.xml`): 2D interpolation of $A_{\sigma}$ calibration matrix over $(H, W)$.
+   - Thermal noise removal and border noise removal.
+   - Complete removal of pixel-value unit guessing and hardcoded calibration scalars (e.g. 100.0).
+   - Strict rejection of synthetic fixtures in research-grade runs (`allow_synthetic=False`).
+   - Synthetic fixtures isolated to `tests/fixtures/synthetic_fixtures.py`.
+
 ---
 
 ## 2. Test Suite Execution & Results
 
-**44 Automated Tests Passing (100% pass rate in 0.65s):**
+**50 Automated Tests Passing (100% pass rate in 11.03s):**
 
 | Test Module | Tests | Status | Scope |
 |---|---|---|---|
 | `varuna/test_contracts.py` | 4 | **PASS** | Orbit matching, temporal bracketing, OSM temporal guard |
 | `tests/test_sar_preprocessing.py` | 8 | **PASS** | Unit validation, missing calibration rejection, unclipped dB, linear speckle filter, alignment overlap |
+| `tests/test_sentinel1_processing.py` | 6 | **PASS** | SAFE package inspection, XML calibration LUT interpolation ($A_{\sigma}$), synthetic fixture isolation, uncalibrated raster fail-closed |
 | `tests/test_osm_connectivity.py` | 5 | **PASS** | T-junctions, bridge layers, parallel roads, unattached settlements, geodesic metrics |
 | `tests/test_cdse_discovery.py` | 5 | **PASS** | CDSE OData parsing, missing metadata rejection, auth requirement |
 | `tests/test_pipeline_integrity.py` | 5 | **PASS** | Explicit state halts on missing credentials, missing rasters, corrupt rasters, corrupt artifacts, verified completion with valid rasters |
@@ -79,5 +88,6 @@ All critical and high-severity scientific defects identified in the independent 
 ## 3. Verified Documentation & Evidence Artifacts
 
 - [docs/PHASE_1_5_AUDIT.md](file:///Users/macbookair/VARUNA/docs/PHASE_1_5_AUDIT.md): Detailed defect-to-fix mapping and regression evidence.
-- [docs/EXPERIMENT_LOG.md](file:///Users/macbookair/VARUNA/docs/EXPERIMENT_LOG.md): Full experiment log containing live CDSE query evidence and end-to-end verified raster processing results.
-- [scripts/run_nepal_experiment.py](file:///Users/macbookair/VARUNA/scripts/run_nepal_experiment.py): Executable script reproducing the live CDSE query, authentication halt, and verified end-to-end processing.
+- [docs/EXPERIMENT_LOG.md](file:///Users/macbookair/VARUNA/docs/EXPERIMENT_LOG.md): Full experiment log containing live CDSE query evidence, orbit pair comparability (Orbit 85 vs 19), and authentic Sentinel-1 calibration specifications.
+- [scripts/run_nepal_experiment.py](file:///Users/macbookair/VARUNA/scripts/run_nepal_experiment.py): Executable script reproducing the live CDSE query, orbit analysis, and honest authentication halt.
+

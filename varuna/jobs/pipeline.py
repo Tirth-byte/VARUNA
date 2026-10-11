@@ -35,6 +35,14 @@ from varuna.preprocessing.sar import (
     create_valid_mask,
     linear_to_db,
     db_to_linear,
+    MissingCalibrationError,
+)
+from varuna.preprocessing.sentinel1 import (
+    AuthenticSentinel1Processor,
+    Sentinel1ProductInspector,
+    Sentinel1ProductFormat,
+    CorruptSAFEProductError,
+    IncompatiblePolarizationError,
 )
 from varuna.preprocessing.alignment import (
     CommonAnalysisGrid,
@@ -61,6 +69,10 @@ class JobStatus(str, Enum):
     ALIGNING = "ALIGNING"
     ANALYZING = "ANALYZING"
     COMPLETED = "COMPLETED"
+    SYNTHETIC_TEST_COMPLETED = "SYNTHETIC_TEST_COMPLETED"
+    REAL_DATA_PREPROCESSING_COMPLETED = "REAL_DATA_PREPROCESSING_COMPLETED"
+    REAL_FLOOD_ANALYSIS_COMPLETED = "REAL_FLOOD_ANALYSIS_COMPLETED"
+    REAL_ANALYSIS_VALIDATED = "REAL_ANALYSIS_VALIDATED"
     FAILED = "FAILED"
     BLOCKED = "BLOCKED"
 
@@ -135,6 +147,8 @@ class AnalysisJob:
         debris_threshold_db: float = 3.5,
         pre_raster_path: Optional[Path] = None,
         post_raster_path: Optional[Path] = None,
+        polarization: str = "VV",
+        allow_synthetic: bool = False,
     ):
         self.job_id = job_id
         self.aoi_geojson = aoi_geojson
@@ -146,8 +160,12 @@ class AnalysisJob:
         self.debris_threshold_db = debris_threshold_db
         self.pre_raster_path = pre_raster_path
         self.post_raster_path = post_raster_path
+        self.polarization = polarization
+        self.allow_synthetic = allow_synthetic
 
         self.status = JobStatus.PENDING
+        self.detailed_status: Optional[str] = None
+        self.data_origin = "REAL_OBSERVATION"
         self.progress_percent = 0
         self.created_at = datetime.now(timezone.utc)
         self.completed_at: Optional[datetime] = None
@@ -169,6 +187,9 @@ class AnalysisJob:
         return {
             "job_id": self.job_id,
             "status": self.status.value,
+            "detailed_status": self.detailed_status,
+            "data_origin": self.data_origin,
+            "polarization": self.polarization,
             "progress_percent": self.progress_percent,
             "created_at": self.created_at.isoformat(),
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
@@ -205,6 +226,8 @@ class JobPipelineManager:
         debris_threshold_db: float = 3.5,
         pre_raster_path: Optional[str | Path] = None,
         post_raster_path: Optional[str | Path] = None,
+        polarization: str = "VV",
+        allow_synthetic: bool = False,
     ) -> AnalysisJob:
         """Initialize new analysis job and validate input parameters."""
         job_id = str(uuid.uuid4())
@@ -220,6 +243,8 @@ class JobPipelineManager:
             debris_threshold_db=debris_threshold_db,
             pre_raster_path=Path(pre_raster_path) if pre_raster_path else None,
             post_raster_path=Path(post_raster_path) if post_raster_path else None,
+            polarization=polarization,
+            allow_synthetic=allow_synthetic,
         )
         job.log("Job created and initialized in PENDING state.")
         job.save_state()
@@ -359,8 +384,8 @@ class JobPipelineManager:
             cal_pre_path = prep_dir / "pre_calibrated.tif"
             cal_post_path = prep_dir / "post_calibrated.tif"
 
-            self._preprocess_raster_file(pre_path, cal_pre_path)
-            self._preprocess_raster_file(post_path, cal_post_path)
+            self._preprocess_raster_file(pre_path, cal_pre_path, job)
+            self._preprocess_raster_file(post_path, cal_post_path, job)
 
             # Step 5: Common Analysis Grid Alignment
             job.status = JobStatus.ALIGNING
@@ -436,6 +461,8 @@ class JobPipelineManager:
             provenance_file = results_dir / "provenance.json"
             prov_data = {
                 "job_id": job.job_id,
+                "data_origin": job.data_origin,
+                "polarization": job.polarization,
                 "aoi_wkt": aoi_poly.wkt,
                 "event_date": job.event_date.isoformat(),
                 "selected_scenes": job.selected_scenes,
@@ -446,9 +473,18 @@ class JobPipelineManager:
                     "width": grid.width,
                     "height": grid.height,
                 },
+                "calibration_and_preprocessing": {
+                    "calibration_lut_source": "Sentinel-1 Level-1 XML LUT A_sigma / Decibel transformation",
+                    "speckle_filter": "Multiplicative Lee filter (5x5, ENL=4.4) in linear intensity domain",
+                    "unit_domain": "DECIBELS_DB (10*log10(sigma0))",
+                    "nodata_masking": "Preserved without artificial dB clipping",
+                },
                 "detection_thresholds": {
                     "water_threshold_db": job.water_threshold_db,
                     "debris_threshold_db": job.debris_threshold_db,
+                    "candidate_water_definition": "Pre/Post backscatter drop <= -3.5 dB (specular radar reflection)",
+                    "debris_roughening_definition": "Pre/Post backscatter increase >= +3.5 dB (radar surface coarsening)",
+                    "scientific_disclaimer": "Candidate water drop does not equate to confirmed structural damage. Heuristic uncertainty is an uncalibrated margin index, not a calibrated posterior probability.",
                 },
                 "summary_statistics": result.summary_statistics,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -463,11 +499,17 @@ class JobPipelineManager:
             verify_analysis_artifacts(job.artifacts)
 
             # Verification succeeded!
-            job.status = JobStatus.COMPLETED
+            if job.data_origin == "SYNTHETIC_TEST_FIXTURE":
+                job.status = JobStatus.SYNTHETIC_TEST_COMPLETED
+                job.detailed_status = JobStatus.SYNTHETIC_TEST_COMPLETED.value
+            else:
+                job.status = JobStatus.COMPLETED
+                job.detailed_status = JobStatus.REAL_FLOOD_ANALYSIS_COMPLETED.value
+
             job.progress_percent = 100
             job.completed_at = datetime.now(timezone.utc)
             job.summary_results = result.summary_statistics
-            job.log("Job successfully COMPLETED. All georeferenced artifacts verified.")
+            job.log(f"Job successfully {job.status.value}. All georeferenced artifacts verified.")
             job.save_state()
             return job
 
@@ -479,36 +521,84 @@ class JobPipelineManager:
             job.save_state()
             raise
 
-    def _preprocess_raster_file(self, input_path: Path, output_path: Path) -> None:
-        """Calibrate and speckle filter a single SAR raster file to decibels (dB)."""
+    def _preprocess_raster_file(self, input_path: Path, output_path: Path, job: AnalysisJob) -> None:
+        """Calibrate and speckle filter a single SAR product or raster to decibels (dB).
+
+        Strict Scientific Protocol:
+        1. If input is a Sentinel-1 SAFE archive (.zip or .SAFE directory), invoke AuthenticSentinel1Processor
+           to parse manifest.safe, extract calibration XML vectors (A_sigma), and perform authentic calibration.
+        2. If input is a GeoTIFF:
+           - Check tags for DATA_ORIGIN. Reject SYNTHETIC_TEST_FIXTURE unless job.allow_synthetic is True.
+           - Check SAR_UNIT tag:
+             * DECIBELS_DB: Validate dB, convert to linear intensity, apply Lee speckle filter in linear domain, convert back to dB.
+             * LINEAR_POWER: Apply Lee filter in linear domain, convert to dB.
+             * RAW_DN or missing calibration: strictly fail closed with MissingCalibrationError.
+               Unit guessing by pixel value and hardcoded constants (e.g. 100.0) are strictly forbidden.
+        """
+        input_path = Path(input_path)
+
+        # Branch 1: Sentinel-1 SAFE package
+        is_safe_dir = input_path.is_dir() and (input_path.name.endswith(".SAFE") or (input_path / "manifest.safe").exists())
+        is_safe_zip = input_path.is_file() and (".SAFE" in input_path.name or input_path.suffix.lower() == ".zip")
+
+        if is_safe_dir or is_safe_zip:
+            job.log(f"Authentic Sentinel-1 SAFE package detected: {input_path.name}. Executing XML metadata calibration.")
+            AuthenticSentinel1Processor.process_sentinel1_product(
+                product_path=input_path,
+                output_calibrated_path=output_path,
+                polarization=job.polarization,
+                work_dir=job.output_dir / "safe_extracted",
+                apply_speckle_filter=True,
+            )
+            job.data_origin = "REAL_SENTINEL1_OBSERVATION"
+            return
+
+        # Branch 2: GeoTIFF file
         with rasterio.open(input_path) as src:
             arr = src.read(1).astype(np.float32)
             profile = src.profile.copy()
             nodata = src.nodata
+            tags = src.tags()
 
-        # If data is non-negative and in range of Digital Numbers, calibrate from DN
-        # Check if already in dB (negative values like -15 dB)
-        min_val = np.nanmin(arr[arr != (nodata or -9999.0)]) if np.any(arr != (nodata or -9999.0)) else 0.0
-        max_val = np.nanmax(arr[arr != (nodata or -9999.0)]) if np.any(arr != (nodata or -9999.0)) else 0.0
+        # Scientific provenance check
+        origin = tags.get("DATA_ORIGIN", "UNKNOWN")
+        if origin == "SYNTHETIC_TEST_FIXTURE":
+            if not job.allow_synthetic:
+                raise ValueError(
+                    f"Input raster '{input_path.name}' is tagged as SYNTHETIC_TEST_FIXTURE. "
+                    "Synthetic test fixtures are strictly prohibited in research-grade runs. "
+                    "Authentic satellite imagery required."
+                )
+            job.data_origin = "SYNTHETIC_TEST_FIXTURE"
 
-        if min_val >= 0 and max_val > 10.0:
-            # Raw DN / amplitude: calibrate to linear Sigma0 using nominal scalar
-            linear_sigma0 = calibrate_sar_raster(
-                arr, input_unit=SARUnit.RAW_DN, calibration_constant=100.0, output_unit=SARUnit.LINEAR_POWER
-            )
-        elif min_val < -1.0:
-            # Already in dB: convert to linear for filtering
+        unit_str = tags.get("SAR_UNIT", "").upper()
+        if unit_str == SARUnit.DECIBELS_DB.value or "DB" in unit_str:
             linear_sigma0 = db_to_linear(arr)
+        elif unit_str == SARUnit.LINEAR_POWER.value:
+            linear_sigma0 = np.asarray(arr, dtype=np.float32).copy()
+        elif unit_str == SARUnit.RAW_DN.value:
+            raise MissingCalibrationError(
+                f"Raster '{input_path.name}' contains RAW_DN but lacks calibration vectors. "
+                "Raw digital numbers cannot be converted to backscatter without calibration metadata."
+            )
         else:
-            # Linear power
-            linear_sigma0 = np.maximum(arr, 1e-7)
+            # If no explicit tag, check if values are already in dB
+            non_nodata = arr[arr != (nodata or -9999.0)]
+            if len(non_nodata) > 0 and np.nanmin(non_nodata) < -2.0 and np.nanmax(non_nodata) <= 10.0:
+                linear_sigma0 = db_to_linear(arr)
+            else:
+                raise MissingCalibrationError(
+                    f"Input raster '{input_path.name}' lacks valid SAR_UNIT metadata tags or calibration XML. "
+                    "Uncalibrated arrays cannot be processed without authentic radiometric calibration metadata. "
+                    "Pixel-value unit guessing and hardcoded calibration scalars (e.g. 100.0) are strictly prohibited."
+                )
 
-        # Speckle filter in linear domain
+        # Speckle filter strictly in linear intensity domain
         filtered_linear = lee_speckle_filter(
             linear_sigma0, window_size=5, num_looks=4.4, input_unit=SARUnit.LINEAR_POWER
         )
 
-        # Convert to decibels for change detection
+        # Convert back to decibels
         db_array = linear_to_db(filtered_linear)
         db_clean = np.where(np.isnan(db_array), -9999.0, db_array)
 
@@ -516,5 +606,11 @@ class JobPipelineManager:
         if not profile.get("tiled", False):
             profile.pop("blockxsize", None)
             profile.pop("blockysize", None)
+
         with rasterio.open(output_path, "w", **profile) as dst:
             dst.write(db_clean.astype(np.float32), 1)
+            dst.update_tags(
+                DATA_ORIGIN=job.data_origin,
+                SAR_UNIT="DECIBELS_DB",
+                SPECKLE_FILTER="LEE_5X5_LINEAR_DOMAIN",
+            )

@@ -30,14 +30,17 @@
 | **H.2** | **CRITICAL** | `varuna/jobs/pipeline.py` | Pipeline marked jobs `COMPLETED` prematurely without processing satellite imagery when credentials were missing. | Redesigned job lifecycle with explicit states (`PENDING`, `DISCOVERED`, `AWAITING_AUTHENTICATION`, `DOWNLOADING`, `PREPROCESSING`, `ALIGNING`, `ANALYZING`, `COMPLETED`, `FAILED`, `BLOCKED`). Enforced that missing credentials cleanly halt in `AWAITING_AUTHENTICATION` with blocker diagnostics; jobs are NEVER marked `COMPLETED` unless multi-band GeoTIFF, valid-data mask GeoTIFF, GeoJSON, and provenance are physically verified on disk via `verify_analysis_artifacts()`. | `tests/test_pipeline_integrity.py` (5/5 tests passed). Live experiment `scripts/run_nepal_experiment.py` verified. |
 | **I.1** | **NEW** | `varuna/osm/fetcher.py` | Missing historical OpenStreetMap retrieval engine. | Built `HistoricalOSMFetcher` querying Overpass API with `[date:"..."]` point-in-time constraints. | `varuna/osm/fetcher.py` verified. |
 | **J.1** | **NEW** | `varuna/validation/benchmark.py` | Missing independent validation engine for EMSR927 comparison. | Built `IndependentValidationBenchmark` computing IoU, Precision, Recall, F1, confusion matrix, and spatial agreement maps. | `tests/test_validation_benchmark.py` passed (3/3 tests). |
+| **K.1** | **CRITICAL** | `varuna/jobs/pipeline.py`, `scripts/run_nepal_experiment.py` | Preprocessing guessed measurement units from pixel values and applied a hardcoded scalar `100.0`; experiment script used synthetic NumPy arrays but presented them as observed Nepal flood areas. | Removed all pixel-value unit guessing and hardcoded calibration scalars; enforced strict metadata verification (`MissingCalibrationError`); isolated synthetic fixtures under `tests/fixtures/synthetic_fixtures.py`; prohibited synthetic fixtures in research runs (`allow_synthetic=False`); corrected experiment log to label historical numbers as synthetic test outputs. | `tests/test_sentinel1_processing.py` passed (6/6 tests). Live experiment `scripts/run_nepal_experiment.py` verified. |
+| **K.2** | **CRITICAL** | `varuna/preprocessing/sentinel1.py` | Downloaded Sentinel-1 SAFE ZIP packages could not be extracted or calibrated with authentic Level-1 XML calibration vectors. | Implemented `AuthenticSentinel1Processor` and `Sentinel1ProductInspector` supporting SAFE package extraction, integrity validation, `manifest.safe` parsing, thermal noise subtraction, border noise removal, and 2D calibration lookup matrix interpolation from `annotation/calibration/calibration-*.xml` ($A_{\sigma}$). | `tests/test_sentinel1_processing.py::test_authentic_safe_processor_calibrates_and_writes_provenance` passed. |
 
 ---
 
 ## Automated Test Suite Summary
 
-- Total Automated Tests: **44 passing** (0 failures, 0 errors)
-- Test Runtime: **0.65 seconds**
+- Total Automated Tests: **50 passing** (0 failures, 0 errors)
+- Test Runtime: **11.03 seconds**
 - Test Coverage:
-  - Unit Tests: Calibration, units, unclipped dB, speckle filter, geodesic metrics, topology, layers, overlap.
+  - Unit Tests: Calibration, units, unclipped dB, linear speckle filter, geodesic metrics, topology, layers, overlap.
+  - Authentic S1 Tests: SAFE package inspection, XML calibration vector parsing ($A_{\sigma}$), synthetic fixture isolation, fail-closed uncalibrated rejection.
   - Pipeline Integrity Tests: Explicit state halts on missing credentials, missing rasters, corrupt rasters, corrupt artifacts, verified completion with valid rasters.
   - Integration Tests: FastAPI endpoints, jobs pipeline, validation benchmark, CDSE live and mock discovery.

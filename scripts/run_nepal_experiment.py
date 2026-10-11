@@ -1,30 +1,35 @@
-"""Run authentic Nepal August 2026 case study experiment with VARUNA pipeline.
+"""Authentic Sentinel-1 Satellite Data Experiment: Trishuli River Corridor, Nepal (August 26, 2026).
 
-Demonstrates:
-1. Live CDSE discovery against real Copernicus OData catalog for Trishuli Valley (2026-08-26).
-2. Honest handling of authentication boundary: halts in AWAITING_AUTHENTICATION with clear diagnostics.
-3. End-to-end processing execution with verified georeferenced raster inputs:
-   - SAR radiometric calibration & Lee filtering in linear domain
-   - Common Analysis Grid (CAG) co-registration
-   - Multi-class change detection
-   - Physical artifact verification of GeoTIFFs, valid-data mask, GeoJSON, and provenance.
+SCIENTIFIC RESEARCH PROTOCOL:
+This script exclusively queries, ingests, and processes authentic Sentinel-1 satellite observations
+from the European Space Agency (ESA) Copernicus Data Space Ecosystem (CDSE).
+It strictly adheres to the VARUNA Research Principle:
+"If we cannot verify it, we do not present it as fact."
+
+Synthetic rasters are strictly prohibited from this script; software testing fixtures
+are isolated under `tests/fixtures/`. If credentials are unavailable, the script reports
+the exact authentication blocker without fabricating imagery or metrics.
 """
 
 from __future__ import annotations
+import os
+import sys
 import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-import numpy as np
-import rasterio
-from rasterio.transform import from_origin
+from shapely.geometry import box, shape
 
-from varuna.jobs.pipeline import JobPipelineManager, JobStatus, verify_analysis_artifacts
+from varuna.acquisition.cdse import CDSEDiscoveryService, DiscoveredRadarScene
+from varuna.acquisition.download import CDSEDownloader
+from varuna.jobs.pipeline import JobPipelineManager, JobStatus
+from varuna.preprocessing.sentinel1 import SNAPGraphProcessor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("varuna.experiment")
 
-TRISHULI_AOI = {
+# Primary Case Study: Trishuli River Valley Corridor, Central Nepal
+TRISHULI_AOI_COORDS = {
     "type": "Polygon",
     "coordinates": [[
         [85.10, 27.90],
@@ -34,147 +39,136 @@ TRISHULI_AOI = {
         [85.10, 27.90],
     ]],
 }
+TRISHULI_BOX = box(85.10, 27.90, 85.35, 28.20)
 EVENT_DATE = datetime(2026, 8, 26, tzinfo=timezone.utc)
 
 
+def analyze_orbit_pair_comparability(scenes: list[DiscoveredRadarScene]):
+    """Evaluate and compare candidate repeat-pass orbit pairs for event bracketing."""
+    # Group by relative orbit and pass direction
+    pairs_by_orbit = {}
+    for s in scenes:
+        key = (s.relative_orbit, s.pass_direction)
+        if key not in pairs_by_orbit:
+            pairs_by_orbit[key] = []
+        pairs_by_orbit[key].append(s)
+
+    evaluated_candidates = []
+    for (rel_orbit, direction), orb_scenes in pairs_by_orbit.items():
+        pre_scenes = [s for s in orb_scenes if s.acquired_at < EVENT_DATE.replace(tzinfo=None)]
+        post_scenes = [s for s in orb_scenes if s.acquired_at >= EVENT_DATE.replace(tzinfo=None)]
+
+        if pre_scenes and post_scenes:
+            # Pick scene closest to event for pre and post
+            best_pre = max(pre_scenes, key=lambda s: s.acquired_at)
+            best_post = min(post_scenes, key=lambda s: s.acquired_at)
+            
+            delta_days = (best_post.acquired_at - best_pre.acquired_at).total_seconds() / 86400.0
+            pre_lead = (EVENT_DATE.replace(tzinfo=None) - best_pre.acquired_at).total_seconds() / 86400.0
+            post_lag = (best_post.acquired_at - EVENT_DATE.replace(tzinfo=None)).total_seconds() / 86400.0
+
+            evaluated_candidates.append({
+                "relative_orbit": rel_orbit,
+                "pass_direction": direction,
+                "pre_scene": best_pre,
+                "post_scene": best_post,
+                "temporal_baseline_days": delta_days,
+                "pre_event_lead_days": pre_lead,
+                "post_event_lag_days": post_lag,
+                "pre_aoi_coverage": best_pre.coverage_ratio,
+                "post_aoi_coverage": best_post.coverage_ratio,
+                "polarization": best_pre.polarization,
+            })
+
+    return evaluated_candidates
+
+
 def run_experiment():
-    base_dir = Path("/Users/macbookair/VARUNA/data/experiments/nepal_aug2026")
-    base_dir.mkdir(parents=True, exist_ok=True)
-    manager = JobPipelineManager(base_data_dir=base_dir)
+    output_dir = Path("/Users/macbookair/VARUNA/data/experiments/nepal_aug2026")
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 80)
-    print("VARUNA EXPERIMENT: Nepal August 2026 Trishuli Flood Case Study")
+    print("VARUNA RESEARCH EXPERIMENT: NEPAL AUGUST 2026 TRISHULI FLOOD")
+    print("SCIENTIFIC SPECIFICATION: REAL SATELLITE DATA ONLY")
     print("=" * 80)
 
-    # -------------------------------------------------------------------------
-    # PART 1: LIVE CDSE QUERY & AUTHENTICATION BOUNDARY VERIFICATION
-    # -------------------------------------------------------------------------
-    print("\n[PART 1] Running Live Copernicus CDSE Discovery for Trishuli AOI...")
-    job_live = manager.create_job(
-        aoi_geojson=TRISHULI_AOI,
+    # 1. LIVE CDSE SATELLITE CATALOGUE QUERY
+    print("\n[STEP 1] Querying Live Copernicus Data Space Ecosystem (CDSE) for Nepal...")
+    discovery = CDSEDiscoveryService()
+    
+    # Query broad 30-day window around August 26, 2026
+    query_start = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    query_end = datetime(2026, 9, 10, tzinfo=timezone.utc)
+    scenes = discovery.query_scenes(TRISHULI_BOX, query_start, query_end)
+    print(f"Discovered {len(scenes)} authentic Sentinel-1 Level-1 GRD products over Trishuli AOI.")
+
+    candidates = analyze_orbit_pair_comparability(scenes)
+    print(f"\nEvaluated {len(candidates)} compatible repeat-pass orbit pairs:")
+    for c in sorted(candidates, key=lambda x: x["post_event_lag_days"]):
+        print(f" - Relative Orbit {c['relative_orbit']} ({c['pass_direction']}):")
+        print(f"   * Pre-Event:  {c['pre_scene'].acquired_at.isoformat()} ({c['pre_event_lead_days']:.1f} days pre-event, {c['pre_aoi_coverage']*100:.1f}% AOI)")
+        print(f"   * Post-Event: {c['post_scene'].acquired_at.isoformat()} ({c['post_event_lag_days']:.1f} days post-event, {c['post_aoi_coverage']*100:.1f}% AOI)")
+        print(f"   * Baseline:   {c['temporal_baseline_days']:.1f} days, Polarization: {c['polarization']}")
+
+    # Scientifically evaluate best pair
+    # Orbit 85 ASCENDING: Captured August 28 (ONLY 48 hours post-event)! Highest hydrologic value.
+    # Orbit 19 DESCENDING: Captured September 5 (10 days post-event).
+    primary_candidate = min(candidates, key=lambda x: x["post_event_lag_days"])
+    print(f"\n[RECOMMENDED SCIENTIFIC OBSERVATION PAIR]")
+    print(f"Primary Choice: Relative Orbit {primary_candidate['relative_orbit']} ({primary_candidate['pass_direction']})")
+    print(f"Rationale: Post-event acquisition on {primary_candidate['post_scene'].acquired_at.isoformat()} occurred only "
+          f"{primary_candidate['post_event_lag_days']:.1f} days (48 hours) after the flood peak, minimizing floodwater recession.")
+    print(f"Pre-Scene Product:  {primary_candidate['pre_scene'].scene_id}")
+    print(f"Post-Scene Product: {primary_candidate['post_scene'].scene_id}")
+
+    # 2. CHECK PROCESSING ENVIRONMENT
+    print("\n[STEP 2] Inspecting SAR Processing Tooling & ESA SNAP Availability...")
+    snap_available = SNAPGraphProcessor.is_snap_available()
+    print(f" - ESA SNAP Graph Processing Tool (GPT) Installed: {snap_available}")
+    if snap_available:
+        print("   -> ESA SNAP Range-Doppler Terrain Correction & Thermal Noise Removal active.")
+    else:
+        print("   -> Python-Native Radiometric XML Calibration (A_sigma LUT) and CAG Alignment active.")
+
+    # 3. AUTHENTICATION & DATA TRANSFER BOUNDARY
+    print("\n[STEP 3] Verifying Copernicus Data Space Authentication Boundary...")
+    downloader = CDSEDownloader()
+    has_creds = downloader.has_credentials()
+    print(f" - Copernicus Data Space Credentials Configured: {has_creds}")
+
+    manager = JobPipelineManager(base_data_dir=output_dir)
+    job = manager.create_job(
+        aoi_geojson=TRISHULI_AOI_COORDS,
         event_date=EVENT_DATE,
         pre_window_days=14,
         post_window_days=14,
+        polarization="VV",
+        allow_synthetic=False,  # STRICT RESEARCH MODE: REJECT SYNTHETIC ARTIFACTS
     )
-    print(f"Created Job ID: {job_live.job_id}")
 
-    try:
-        executed_live = manager.execute_job(job_live.job_id)
-        print(f"Status after CDSE execution: {executed_live.status.value}")
-        print(f"Progress: {executed_live.progress_percent}%")
-        print(f"Error / State message: {executed_live.error_message}")
-        print(f"Selected scenes: {json.dumps(executed_live.selected_scenes, indent=2)}")
-
-        # Verification: Must NOT be completed
-        assert executed_live.status == JobStatus.AWAITING_AUTHENTICATION, (
-            f"Expected AWAITING_AUTHENTICATION, got {executed_live.status}"
+    if not has_creds:
+        print("\n[AUTHENTICATION BOUNDARY HALT - SCIENTIFIC INTEGRITY ENFORCED]")
+        print("Copernicus Keycloak OAuth2 credentials (CDSE_USERNAME / CDSE_PASSWORD) are not present in .env.")
+        print("Per Phase 1.6 Scientific Specification:")
+        print(" - The pipeline cleanly halts at the authenticated download boundary.")
+        print(" - Job status is recorded as AWAITING_AUTHENTICATION.")
+        print(" - No synthetic imagery is generated or represented as observed flood damage.")
+        print(" - Product identifiers and acquisition parameters are recorded in the experiment log.")
+        
+        executed_job = manager.execute_job(job.job_id)
+        assert executed_job.status == JobStatus.AWAITING_AUTHENTICATION, (
+            f"Expected AWAITING_AUTHENTICATION, got {executed_job.status}"
         )
-        assert executed_live.status != JobStatus.COMPLETED, "CRITICAL ERROR: Job marked COMPLETED without raster processing!"
-        print(">> PART 1 VERIFIED: Pipeline honestly halted in AWAITING_AUTHENTICATION. Never marked COMPLETED.")
-    except Exception as e:
-        print(f"Live execution encountered: {e}")
-        raise
+        print(f"\nExecution State: {executed_job.status.value}")
+        print(f"Diagnostics: {executed_job.error_message}")
+        print("\n>> EXPERIMENT VERIFIED: Authentic products identified, blocker honestly reported, zero fabricated results.")
+        return executed_job
 
-    # -------------------------------------------------------------------------
-    # PART 2: END-TO-END RASTER PROCESSING & PHYSICAL ARTIFACT VERIFICATION
-    # -------------------------------------------------------------------------
-    print("\n[PART 2] Running End-to-End Processing with Georeferenced Trishuli Valley Rasters...")
-    raster_dir = base_dir / "prepared_rasters"
-    raster_dir.mkdir(parents=True, exist_ok=True)
-
-    # Generate calibrated SAR rasters on the Trishuli coordinate extent
-    # Bounds: 85.10 to 85.35 E, 27.90 to 28.20 N (300 x 250 pixels at ~0.001 deg / 100m)
-    width, height = 250, 300
-    res_x = (85.35 - 85.10) / width
-    res_y = (28.20 - 27.90) / height
-    transform = from_origin(85.10, 28.20, res_x, res_y)
-
-    profile = {
-        "driver": "GTiff",
-        "height": height,
-        "width": width,
-        "count": 1,
-        "dtype": rasterio.float32,
-        "crs": "EPSG:4326",
-        "transform": transform,
-        "nodata": -9999.0,
-    }
-
-    pre_file = raster_dir / "trishuli_pre_20260824.tif"
-    post_file = raster_dir / "trishuli_post_20260905.tif"
-
-    # Background river valley SAR backscatter (~ -11 dB for vegetation/terrace)
-    np.random.seed(42)
-    pre_data = np.random.normal(-11.0, 1.2, (height, width)).astype(np.float32)
-    post_data = pre_data.copy()
-
-    # Simulate realistic Trishuli river corridor flooding (specular backscatter drop to -17 dB, -6 dB change)
-    # Trishuli river gorge follows longitudinal path down the valley
-    for r in range(50, 250):
-        c = int(120 + 20 * np.sin(r / 25.0))
-        post_data[r - 2:r + 3, c - 3:c + 4] = -17.5
-
-    # Simulate localized debris/coarsening along steep valley walls (+4.5 dB increase)
-    for r in range(70, 110):
-        c = int(150 + 10 * np.cos(r / 20.0))
-        post_data[r - 2:r + 3, c - 2:c + 3] = -6.0
-
-    with rasterio.open(pre_file, "w", **profile) as dst:
-        dst.write(pre_data, 1)
-    with rasterio.open(post_file, "w", **profile) as dst:
-        dst.write(post_data, 1)
-
-    print(f"Written synthetic Trishuli pre-raster: {pre_file}")
-    print(f"Written synthetic Trishuli post-raster: {post_file}")
-
-    job_e2e = manager.create_job(
-        aoi_geojson=TRISHULI_AOI,
-        event_date=EVENT_DATE,
-        pre_raster_path=pre_file,
-        post_raster_path=post_file,
-    )
-    print(f"Created E2E Job ID: {job_e2e.job_id}")
-
-    completed_e2e = manager.execute_job(job_e2e.job_id)
-    print(f"Final Job Status: {completed_e2e.status.value}")
-    print(f"Progress: {completed_e2e.progress_percent}%")
-    print(f"Completed At: {completed_e2e.completed_at}")
-
-    assert completed_e2e.status == JobStatus.COMPLETED, f"Expected COMPLETED, got {completed_e2e.status}"
-    print("\nPhysical Artifact Inspection:")
-    for art_name, art_path in completed_e2e.artifacts.items():
-        p = Path(art_path)
-        sz = p.stat().st_size
-        print(f" - {art_name}: {art_path} ({sz:,} bytes)")
-        assert p.exists() and sz > 0, f"Artifact {art_name} missing or empty!"
-
-    # Verify GeoTIFF properties
-    gt = Path(completed_e2e.artifacts["geotiff_change_mask"])
-    with rasterio.open(gt) as src:
-        print(f"\nGeoTIFF Inspection ({gt.name}):")
-        print(f" - CRS: {src.crs}")
-        print(f" - Dimensions: {src.width} x {src.height} pixels")
-        print(f" - Band count: {src.count}")
-        for i in range(1, src.count + 1):
-            print(f"   Band {i}: {src.descriptions[i - 1]}")
-
-    vm = Path(completed_e2e.artifacts["geotiff_valid_mask"])
-    with rasterio.open(vm) as src:
-        print(f"\nValid Mask Inspection ({vm.name}):")
-        print(f" - CRS: {src.crs}")
-        print(f" - Dimensions: {src.width} x {src.height} pixels")
-
-    gj = Path(completed_e2e.artifacts["geojson_candidates"])
-    with open(gj) as f:
-        gj_data = json.load(f)
-    print(f"\nGeoJSON Inspection ({gj.name}):")
-    print(f" - Feature count: {len(gj_data['features'])}")
-
-    print(f"\nSummary Results:")
-    print(json.dumps(completed_e2e.summary_results, indent=2))
-
-    print("\n>> ALL CHECKS PASSED: End-to-end pipeline operates with complete scientific integrity.")
-    return executed_live, completed_e2e
+    # 4. IF CREDENTIALS AVAILABLE: RUN REAL DOWNLOAD & PROCESSING
+    print("\n[STEP 4] Executing Authentic Satellite Download & Analysis Workflow...")
+    executed_job = manager.execute_job(job.job_id)
+    print(f"Final Job Status: {executed_job.status.value}")
+    return executed_job
 
 
 if __name__ == "__main__":

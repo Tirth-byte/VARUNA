@@ -18,12 +18,22 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Ensure project root is in sys.path for direct execution
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from shapely.geometry import box, shape
 
-from varuna.acquisition.cdse import CDSEDiscoveryService, DiscoveredRadarScene
+from varuna.acquisition.cdse import CDSEDiscoveryService, DiscoveredRadarScene, CDSEDiscoveryError
 from varuna.acquisition.download import CDSEDownloader
 from varuna.jobs.pipeline import JobPipelineManager, JobStatus
-from varuna.preprocessing.sentinel1 import SNAPGraphProcessor
+from varuna.preprocessing.sentinel1 import (
+    SNAPGraphProcessor,
+    AuthenticSentinel1Processor,
+    TerrainCorrectionUnavailableError,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("varuna.experiment")

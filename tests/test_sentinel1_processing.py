@@ -36,6 +36,8 @@ from varuna.preprocessing.sentinel1 import (
     AuthenticSentinel1Processor,
     CorruptSAFEProductError,
     IncompatiblePolarizationError,
+    IncompatibleSAFEProductPairError,
+    TerrainCorrectionUnavailableError,
 )
 from varuna.jobs.pipeline import JobPipelineManager, JobStatus
 from tests.fixtures.synthetic_fixtures import create_synthetic_test_raster_pair
@@ -50,7 +52,15 @@ class TestSentinel1ProcessingIntegrity(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def _create_mock_safe_archive(self, zip_name: str = "S1D_IW_GRDH_TEST.SAFE.zip", corrupt: bool = False) -> Path:
+    def _create_mock_safe_archive(
+        self,
+        zip_name: str = "S1D_IW_GRDH_TEST.SAFE.zip",
+        corrupt: bool = False,
+        missing_annotation_tag: Optional[str] = None,
+        relative_orbit: int = 19,
+        pass_direction: str = "DESCENDING",
+        polarization: str = "VV",
+    ) -> Path:
         """Create a structurally valid or corrupt Sentinel-1 SAFE archive for testing."""
         safe_name = zip_name.replace(".zip", "")
         safe_path = self.base_dir / safe_name
@@ -70,8 +80,30 @@ class TestSentinel1ProcessingIntegrity(unittest.TestCase):
                 zf.write(manifest, arcname=f"{safe_name}/manifest.safe")
             return zip_path
 
+        # Main annotation XML
+        main_ann_xml = safe_path / "annotation" / f"s1d-iw-grd-{polarization.lower()}-20260824t001844-004260-007d5d-001.xml"
+        ann_root = ET.Element("product")
+        ads = ET.SubElement(ann_root, "adsHeader")
+        if missing_annotation_tag != "mode":
+            ET.SubElement(ads, "mode").text = "IW"
+        if missing_annotation_tag != "startTime":
+            ET.SubElement(ads, "startTime").text = "2026-08-24T00:18:44.000000Z"
+        if missing_annotation_tag != "stopTime":
+            ET.SubElement(ads, "stopTime").text = "2026-08-24T00:19:09.000000Z"
+        ET.SubElement(ads, "absoluteOrbitNumber").text = "4260"
+
+        gen = ET.SubElement(ann_root, "generalAnnotation")
+        prod_info = ET.SubElement(gen, "productInformation")
+        if missing_annotation_tag != "pass":
+            ET.SubElement(prod_info, "pass").text = pass_direction
+        if missing_annotation_tag != "productType":
+            ET.SubElement(prod_info, "productType").text = "GRD"
+        if missing_annotation_tag != "relativeOrbitNumber":
+            ET.SubElement(prod_info, "relativeOrbitNumber").text = str(relative_orbit)
+        ET.ElementTree(ann_root).write(main_ann_xml)
+
         # Measurement GeoTIFF
-        meas_file = meas_dir / "s1d-iw-grd-vv-20260824t001844-004260-007d5d-001.tiff"
+        meas_file = meas_dir / f"s1d-iw-grd-{polarization.lower()}-20260824t001844-004260-007d5d-001.tiff"
         transform = from_origin(85.1, 28.1, 0.001, 0.001)
         profile = {
             "driver": "GTiff",
@@ -87,7 +119,7 @@ class TestSentinel1ProcessingIntegrity(unittest.TestCase):
             dst.write(np.full((20, 20), 500.0, dtype=np.float32), 1)
 
         # Calibration XML
-        cal_xml = ann_dir / "calibration-s1d-iw-grd-vv-20260824t001844-004260-007d5d-001.xml"
+        cal_xml = ann_dir / f"calibration-s1d-iw-grd-{polarization.lower()}-20260824t001844-004260-007d5d-001.xml"
         root = ET.Element("calibration")
         vec_list = ET.SubElement(root, "calibrationVectorList", count="2")
         for line_idx in [0, 19]:
@@ -234,6 +266,117 @@ class TestSentinel1ProcessingIntegrity(unittest.TestCase):
 
         self.assertIn("lacks valid SAR_UNIT metadata tags or calibration XML", str(ctx.exception))
 
+    def test_defect_a_pixel_value_guessing_strictly_prohibited(self):
+        """Defect A: Rasters with values in dB range (-15 to +5) lacking SAR_UNIT tag must be rejected.
+
+        Pixel-value guessing from min/max values is strictly prohibited.
+        """
+        guessed_path = self.base_dir / "untagged_db_values.tif"
+        transform = from_origin(85.1, 28.1, 0.001, 0.001)
+        profile = {
+            "driver": "GTiff",
+            "height": 20,
+            "width": 20,
+            "count": 1,
+            "dtype": rasterio.float32,
+            "crs": "EPSG:4326",
+            "transform": transform,
+            "nodata": -9999.0,
+        }
+        # Values like -12.0 dB that the previous buggy fallback guessed was dB:
+        with rasterio.open(guessed_path, "w", **profile) as dst:
+            dst.write(np.full((20, 20), -12.0, dtype=np.float32), 1)
+            # Deliberately DO NOT set SAR_UNIT tag
+
+        manager = JobPipelineManager(base_data_dir=self.base_dir / "jobs_defect_a")
+        job = manager.create_job(
+            aoi_geojson={"type": "Polygon", "coordinates": [[[85.1, 27.9], [85.3, 27.9], [85.3, 28.1], [85.1, 28.1], [85.1, 27.9]]]},
+            event_date=datetime(2026, 8, 26, tzinfo=timezone.utc),
+            pre_raster_path=guessed_path,
+            post_raster_path=guessed_path,
+        )
+
+        with self.assertRaises(MissingCalibrationError) as ctx:
+            manager.execute_job(job.job_id)
+
+        self.assertIn("Inferring decibel units from min/max pixel values is strictly prohibited", str(ctx.exception))
+
+    def test_defect_b_terrain_correction_fails_closed_when_snap_absent(self):
+        """Defect B: Research-grade Range-Doppler Terrain Correction must fail closed if SNAP is unavailable."""
+        safe_zip = self._create_mock_safe_archive("S1D_SNAP_TEST.SAFE.zip")
+        out_tif = self.base_dir / "terrain_corrected.tif"
+
+        # Explicitly require Range-Doppler Terrain Correction
+        with self.assertRaises(TerrainCorrectionUnavailableError) as ctx:
+            AuthenticSentinel1Processor.process_sentinel1_product(
+                product_path=safe_zip,
+                output_calibrated_path=out_tif,
+                polarization="VV",
+                require_range_doppler=True,
+                dem_source="SRTM 3Sec",
+            )
+        self.assertIn("requires Range-Doppler Terrain Correction using ESA SNAP GPT", str(ctx.exception))
+        self.assertIn("Silent downgrades to less rigorous methods are strictly prohibited", str(ctx.exception))
+
+    def test_defect_c_missing_annotation_metadata_fails_closed(self):
+        """Defect C: SAFE archives missing required annotation XML tags must fail closed with CorruptSAFEProductError."""
+        # Archive missing <pass> (orbit direction)
+        missing_pass_zip = self._create_mock_safe_archive(
+            "S1_MISSING_PASS.SAFE.zip",
+            missing_annotation_tag="pass",
+        )
+        with self.assertRaises(CorruptSAFEProductError) as ctx:
+            Sentinel1ProductInspector.inspect(missing_pass_zip, work_dir=self.base_dir)
+        self.assertIn("lacks required <pass> tag", str(ctx.exception))
+
+        # Archive missing <relativeOrbitNumber>
+        missing_rel_zip = self._create_mock_safe_archive(
+            "S1_MISSING_REL.SAFE.zip",
+            missing_annotation_tag="relativeOrbitNumber",
+        )
+        with self.assertRaises(CorruptSAFEProductError) as ctx:
+            Sentinel1ProductInspector.inspect(missing_rel_zip, work_dir=self.base_dir)
+        self.assertIn("lacks required <relativeOrbitNumber> tag", str(ctx.exception))
+
+    def test_defect_c_incompatible_safe_pair_rejected(self):
+        """Defect C: Incompatible pre/post product pairs must be strictly rejected."""
+        safe_orb85 = self._create_mock_safe_archive(
+            "S1_ORB85.SAFE.zip",
+            relative_orbit=85,
+            pass_direction="ASCENDING",
+        )
+        safe_orb19 = self._create_mock_safe_archive(
+            "S1_ORB19.SAFE.zip",
+            relative_orbit=19,
+            pass_direction="DESCENDING",
+        )
+
+        meta_85, _ = Sentinel1ProductInspector.inspect(safe_orb85, work_dir=self.base_dir)
+        meta_19, _ = Sentinel1ProductInspector.inspect(safe_orb19, work_dir=self.base_dir)
+
+        with self.assertRaises(IncompatibleSAFEProductPairError) as ctx:
+            Sentinel1ProductInspector.validate_pair_compatibility(meta_85, meta_19)
+        self.assertIn("Mismatched orbit pass directions", str(ctx.exception))
+
+    def test_defect_d_polarization_substitution_strictly_prohibited(self):
+        """Defect D: Silent polarization substitution (e.g. requesting VH when only VV exists) is strictly prohibited."""
+        safe_vv_only = self._create_mock_safe_archive(
+            "S1_VV_ONLY.SAFE.zip",
+            polarization="VV",
+        )
+        out_tif = self.base_dir / "vh_calibrated.tif"
+
+        # Explicitly request VH when only VV is in product
+        with self.assertRaises(IncompatiblePolarizationError) as ctx:
+            AuthenticSentinel1Processor.process_sentinel1_product(
+                product_path=safe_vv_only,
+                output_calibrated_path=out_tif,
+                polarization="VH",
+            )
+        self.assertIn("Requested polarization 'VH' not present in SAFE product", str(ctx.exception))
+        self.assertIn("Silent polarization switching or substitution is strictly prohibited", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
+

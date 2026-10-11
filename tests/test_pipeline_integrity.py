@@ -172,8 +172,10 @@ class TestPipelineIntegrity(unittest.TestCase):
 
         with rasterio.open(pre_path, "w", **profile) as dst:
             dst.write(arr_pre, 1)
+            dst.update_tags(SAR_UNIT="DECIBELS_DB")
         with rasterio.open(post_path, "w", **profile) as dst:
             dst.write(arr_post, 1)
+            dst.update_tags(SAR_UNIT="DECIBELS_DB")
 
         job = self.manager.create_job(
             aoi_geojson=self.aoi,

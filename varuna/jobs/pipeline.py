@@ -307,37 +307,50 @@ class JobPipelineManager:
             if aoi_poly.is_empty or aoi_poly.area <= 0:
                 raise ValueError("Invalid AOI polygon: area must be strictly positive.")
 
-            # Step 2: CDSE Scene Discovery
-            job.log("Querying Copernicus Data Space Ecosystem for compatible Sentinel-1 pairs.")
-            discovery = discovery_service or CDSEDiscoveryService()
-            rec = discovery.discover_compatible_pair(
-                aoi_geom=aoi_poly,
-                event_date=job.event_date,
-                pre_event_window_days=job.pre_window_days,
-                post_event_window_days=job.post_window_days,
-                min_aoi_coverage=0.20,
-            )
-
-            job.selected_scenes = {
-                "pre_scene_id": rec.before_scene.scene_id,
-                "pre_cdse_id": rec.before_scene.cdse_id,
-                "pre_acquired_at": rec.before_scene.acquired_at.isoformat(),
-                "post_scene_id": rec.after_scene.scene_id,
-                "post_cdse_id": rec.after_scene.cdse_id,
-                "post_acquired_at": rec.after_scene.acquired_at.isoformat(),
-                "relative_orbit": rec.relative_orbit,
-                "pass_direction": rec.orbit_direction,
-                "temporal_baseline_days": rec.temporal_baseline_days,
-                "scientific_rationale": rec.scientific_rationale,
-            }
-            job.status = JobStatus.DISCOVERED
-            job.progress_percent = 25
-            job.log(f"Discovered matching orbit pair (Relative Orbit {rec.relative_orbit}, {rec.orbit_direction}).")
-            job.save_state()
-
-            # Step 3: Determine raster source (local inputs vs CDSE download)
+            # Step 2: CDSE Scene Discovery (or local raster verification)
             pre_path = override_pre_raster or job.pre_raster_path
             post_path = override_post_raster or job.post_raster_path
+            has_local_rasters = (
+                pre_path is not None
+                and post_path is not None
+                and Path(pre_path).exists()
+                and Path(post_path).exists()
+            )
+
+            try:
+                job.log("Querying Copernicus Data Space Ecosystem for compatible Sentinel-1 pairs.")
+                discovery = discovery_service or CDSEDiscoveryService()
+                rec = discovery.discover_compatible_pair(
+                    aoi_geom=aoi_poly,
+                    event_date=job.event_date,
+                    pre_event_window_days=job.pre_window_days,
+                    post_event_window_days=job.post_window_days,
+                    min_aoi_coverage=0.20,
+                )
+
+                job.selected_scenes = {
+                    "pre_scene_id": rec.before_scene.scene_id,
+                    "pre_cdse_id": rec.before_scene.cdse_id,
+                    "pre_acquired_at": rec.before_scene.acquired_at.isoformat(),
+                    "post_scene_id": rec.after_scene.scene_id,
+                    "post_cdse_id": rec.after_scene.cdse_id,
+                    "post_acquired_at": rec.after_scene.acquired_at.isoformat(),
+                    "relative_orbit": rec.relative_orbit,
+                    "pass_direction": rec.orbit_direction,
+                    "temporal_baseline_days": rec.temporal_baseline_days,
+                    "scientific_rationale": rec.scientific_rationale,
+                }
+                job.status = JobStatus.DISCOVERED
+                job.progress_percent = 25
+                job.log(f"Discovered matching orbit pair (Relative Orbit {rec.relative_orbit}, {rec.orbit_direction}).")
+                job.save_state()
+            except CDSEDiscoveryError as e:
+                if has_local_rasters:
+                    job.log(f"CDSE scene discovery skipped/offline ({e}); proceeding with supplied local rasters.")
+                else:
+                    raise
+
+            # Step 3: Determine raster source (local inputs vs CDSE download)
 
             if not pre_path or not post_path or not pre_path.exists() or not post_path.exists():
                 # Attempt authenticated download from CDSE
@@ -582,16 +595,12 @@ class JobPipelineManager:
                 "Raw digital numbers cannot be converted to backscatter without calibration metadata."
             )
         else:
-            # If no explicit tag, check if values are already in dB
-            non_nodata = arr[arr != (nodata or -9999.0)]
-            if len(non_nodata) > 0 and np.nanmin(non_nodata) < -2.0 and np.nanmax(non_nodata) <= 10.0:
-                linear_sigma0 = db_to_linear(arr)
-            else:
-                raise MissingCalibrationError(
-                    f"Input raster '{input_path.name}' lacks valid SAR_UNIT metadata tags or calibration XML. "
-                    "Uncalibrated arrays cannot be processed without authentic radiometric calibration metadata. "
-                    "Pixel-value unit guessing and hardcoded calibration scalars (e.g. 100.0) are strictly prohibited."
-                )
+            raise MissingCalibrationError(
+                f"Input raster '{input_path.name}' lacks valid SAR_UNIT metadata tags or calibration XML (got: '{unit_str or 'NONE'}'). "
+                "Uncalibrated arrays cannot be processed without authentic radiometric calibration metadata. "
+                "Inferring decibel units from min/max pixel values is strictly prohibited in research-grade runs. "
+                "Explicit calibration metadata (SAR_UNIT=DECIBELS_DB or SAR_UNIT=LINEAR_POWER) is required."
+            )
 
         # Speckle filter strictly in linear intensity domain
         filtered_linear = lee_speckle_filter(

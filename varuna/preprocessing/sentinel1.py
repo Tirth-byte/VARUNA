@@ -70,6 +70,16 @@ class IncompatiblePolarizationError(ValueError):
     pass
 
 
+class IncompatibleSAFEProductPairError(ValueError):
+    """Raised when pre- and post-event SAFE products have incompatible geometry, mode, or orbit."""
+    pass
+
+
+class TerrainCorrectionUnavailableError(RuntimeError):
+    """Raised when research-grade Range-Doppler Terrain Correction is required but unavailable."""
+    pass
+
+
 class SNAPExecutionError(RuntimeError):
     """Raised when ESA SNAP Graph Processing Tool (GPT) execution fails."""
     pass
@@ -207,58 +217,54 @@ class Sentinel1ProductInspector:
                 elif "-vh-" in fname_lower:
                     noise_files["VH"] = f
 
-        # Parse orbit and mode from main annotation XML
-        sensor_mode = "IW"
-        product_type = "GRD"
-        orbit_dir = "DESCENDING"
-        rel_orbit = 0
-        abs_orbit = 0
-        start_time = ""
-        stop_time = ""
-
+        # Parse orbit and mode strictly from main annotation XML - no fallbacks permitted
         ann_xmls = list((safe_dir / "annotation").glob("s1*.xml"))
-        if ann_xmls:
-            try:
-                ann_tree = ET.parse(ann_xmls[0])
-                ann_root = ann_tree.getroot()
-                
-                mode_elem = ann_root.find(".//mode")
-                if mode_elem is not None and mode_elem.text:
-                    sensor_mode = mode_elem.text.strip()
-                
-                ptype_elem = ann_root.find(".//productType")
-                if ptype_elem is not None and ptype_elem.text:
-                    product_type = ptype_elem.text.strip()
+        if not ann_xmls:
+            raise CorruptSAFEProductError(f"Missing annotation XML in {safe_dir / 'annotation'}. Invented defaults are prohibited.")
 
-                pass_elem = ann_root.find(".//pass")
-                if pass_elem is not None and pass_elem.text:
-                    orbit_dir = pass_elem.text.strip().upper()
+        try:
+            ann_tree = ET.parse(ann_xmls[0])
+            ann_root = ann_tree.getroot()
+        except ET.ParseError as e:
+            raise CorruptSAFEProductError(f"Malformed annotation XML '{ann_xmls[0].name}': {e}") from e
 
-                rel_elem = ann_root.find(".//relativeOrbitNumber")
-                if rel_elem is not None and rel_elem.text:
-                    rel_orbit = int(rel_elem.text.strip())
+        mode_elem = ann_root.find(".//mode")
+        if mode_elem is None or not mode_elem.text or not mode_elem.text.strip():
+            raise CorruptSAFEProductError(f"Annotation XML '{ann_xmls[0].name}' lacks required <mode> tag")
+        sensor_mode = mode_elem.text.strip()
 
-                abs_elem = ann_root.find(".//absoluteOrbitNumber")
-                if abs_elem is not None and abs_elem.text:
-                    abs_orbit = int(abs_elem.text.strip())
+        ptype_elem = ann_root.find(".//productType")
+        if ptype_elem is None or not ptype_elem.text or not ptype_elem.text.strip():
+            raise CorruptSAFEProductError(f"Annotation XML '{ann_xmls[0].name}' lacks required <productType> tag")
+        product_type = ptype_elem.text.strip()
 
-                start_elem = ann_root.find(".//startTime")
-                if start_elem is not None and start_elem.text:
-                    start_time = start_elem.text.strip()
+        pass_elem = ann_root.find(".//pass")
+        if pass_elem is None or not pass_elem.text or not pass_elem.text.strip():
+            raise CorruptSAFEProductError(f"Annotation XML '{ann_xmls[0].name}' lacks required <pass> tag (orbit pass direction)")
+        orbit_dir = pass_elem.text.strip().upper()
+        if orbit_dir not in ("ASCENDING", "DESCENDING"):
+            raise CorruptSAFEProductError(f"Invalid orbit pass direction '{orbit_dir}' in annotation XML (must be ASCENDING or DESCENDING)")
 
-                stop_elem = ann_root.find(".//stopTime")
-                if stop_elem is not None and stop_elem.text:
-                    stop_time = stop_elem.text.strip()
-            except Exception as e:
-                logger.warning(f"Could not parse detailed annotation XML: {e}")
+        rel_elem = ann_root.find(".//relativeOrbitNumber")
+        if rel_elem is None or not rel_elem.text or not rel_elem.text.strip():
+            raise CorruptSAFEProductError(f"Annotation XML '{ann_xmls[0].name}' lacks required <relativeOrbitNumber> tag")
+        try:
+            rel_orbit = int(rel_elem.text.strip())
+        except ValueError:
+            raise CorruptSAFEProductError(f"Invalid relativeOrbitNumber '{rel_elem.text}' in annotation XML")
 
-        # If rel_orbit was not found in annotation, parse from product name
-        if rel_orbit == 0:
-            parts = prod_name.split("_")
-            for p in parts:
-                if len(p) == 6 and p.isdigit():
-                    abs_orbit = int(p)
-                    break
+        abs_elem = ann_root.find(".//absoluteOrbitNumber")
+        abs_orbit = int(abs_elem.text.strip()) if (abs_elem is not None and abs_elem.text and abs_elem.text.strip().isdigit()) else 0
+
+        start_elem = ann_root.find(".//startTime")
+        if start_elem is None or not start_elem.text or not start_elem.text.strip():
+            raise CorruptSAFEProductError(f"Annotation XML '{ann_xmls[0].name}' lacks required <startTime> tag")
+        start_time = start_elem.text.strip()
+
+        stop_elem = ann_root.find(".//stopTime")
+        if stop_elem is None or not stop_elem.text or not stop_elem.text.strip():
+            raise CorruptSAFEProductError(f"Annotation XML '{ann_xmls[0].name}' lacks required <stopTime> tag")
+        stop_time = stop_elem.text.strip()
 
         pols = list(meas_files.keys())
 
@@ -278,6 +284,47 @@ class Sentinel1ProductInspector:
             calibration_files=calib_files,
             noise_files=noise_files,
         )
+
+    @classmethod
+    def validate_pair_compatibility(
+        cls,
+        pre_meta: Sentinel1Metadata,
+        post_meta: Sentinel1Metadata,
+        required_polarization: Optional[str] = None,
+    ) -> bool:
+        """Validate that pre and post SAFE products are geometrically and sensor compatible.
+
+        Rejects mismatched orbit directions, relative orbits, sensor modes, or polarizations.
+        """
+        if pre_meta.sensor_mode != post_meta.sensor_mode:
+            raise IncompatibleSAFEProductPairError(
+                f"Mismatched sensor modes: pre is '{pre_meta.sensor_mode}', post is '{post_meta.sensor_mode}'"
+            )
+        if pre_meta.orbit_direction != post_meta.orbit_direction:
+            raise IncompatibleSAFEProductPairError(
+                f"Mismatched orbit pass directions: pre is '{pre_meta.orbit_direction}', post is '{post_meta.orbit_direction}'"
+            )
+        if pre_meta.relative_orbit != post_meta.relative_orbit:
+            raise IncompatibleSAFEProductPairError(
+                f"Mismatched relative orbits: pre is {pre_meta.relative_orbit}, post is {post_meta.relative_orbit}"
+            )
+
+        # Check polarizations
+        common_pols = set(pre_meta.polarizations).intersection(set(post_meta.polarizations))
+        if not common_pols:
+            raise IncompatiblePolarizationError(
+                f"No common polarizations between pre ({pre_meta.polarizations}) and post ({post_meta.polarizations})"
+            )
+        if required_polarization:
+            req_upper = required_polarization.upper()
+            if req_upper not in pre_meta.polarizations or req_upper not in post_meta.polarizations:
+                raise IncompatiblePolarizationError(
+                    f"Required polarization '{req_upper}' not present in both products. "
+                    f"Pre has {pre_meta.polarizations}, post has {post_meta.polarizations}."
+                )
+
+        return True
+
 
 
 class Sentinel1CalibrationLUTExtractor:
@@ -375,6 +422,8 @@ class SNAPGraphProcessor:
         output_geotiff_path: Path,
         polarization: str = "VV",
         target_crs: str = "EPSG:4326",
+        dem_source: str = "SRTM 3Sec",
+        pixel_spacing_m: float = 10.0,
     ) -> Path:
         """Run SNAP GPT graph for Apply-Orbit-File -> ThermalNoiseRemoval -> Calibration -> Terrain-Correction."""
         if not cls.is_snap_available():
@@ -390,10 +439,21 @@ class SNAPGraphProcessor:
       <file>{safe_path}</file>
     </parameters>
   </node>
+  <node id="Apply-Orbit-File">
+    <operator>Apply-Orbit-File</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <orbitType>Sentinel Precise (Auto Download)</orbitType>
+      <polyDegree>3</polyDegree>
+      <continueOnFail>true</continueOnFail>
+    </parameters>
+  </node>
   <node id="ThermalNoiseRemoval">
     <operator>ThermalNoiseRemoval</operator>
     <sources>
-      <sourceProduct refid="Read"/>
+      <sourceProduct refid="Apply-Orbit-File"/>
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <selectedPolarisations>{polarization}</selectedPolarisations>
@@ -426,17 +486,16 @@ class SNAPGraphProcessor:
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <sourceBands/>
-      <demName>SRTM 3Sec</demName>
+      <demName>{dem_source}</demName>
       <externalDEMFile/>
       <externalDEMNoDataValue>0.0</externalDEMNoDataValue>
       <externalDEMApplyEGM>true</externalDEMApplyEGM>
       <demResamplingMethod>BILINEAR_INTERPOLATION</demResamplingMethod>
       <imgResamplingMethod>BILINEAR_INTERPOLATION</imgResamplingMethod>
-      <pixelSpacingInMeter>10.0</pixelSpacingInMeter>
+      <pixelSpacingInMeter>{pixel_spacing_m}</pixelSpacingInMeter>
       <mapProjection>{target_crs}</mapProjection>
       <alignToStandardGrid>false</alignToStandardGrid>
       <standardGridOriginX>0.0</standardGridOriginX>
-      <standardGridOriginY>0.0</standardGridOriginY>
       <nodataValueAtSea>false</nodataValueAtSea>
       <saveDEM>false</saveDEM>
       <saveLatLon>false</saveLatLon>
@@ -489,6 +548,9 @@ class AuthenticSentinel1Processor:
         polarization: str = "VV",
         work_dir: Optional[Path] = None,
         apply_speckle_filter: bool = True,
+        require_range_doppler: bool = False,
+        dem_source: str = "SRTM 3Sec",
+        target_crs: str = "EPSG:4326",
     ) -> Path:
         """Transform genuine Sentinel-1 SAFE product to calibrated, speckle-filtered decibel raster."""
         output_path = Path(output_calibrated_path)
@@ -497,15 +559,35 @@ class AuthenticSentinel1Processor:
         # Inspect SAFE product
         meta, safe_dir = Sentinel1ProductInspector.inspect(product_path, work_dir=work_dir)
 
-        # Verify polarization
+        # Verify polarization strictly - no silent switching or substitution permitted!
         pol_upper = polarization.upper()
         if pol_upper not in meta.polarizations:
-            # Fallback to available polarization if requested is absent
-            if meta.polarizations:
-                logger.warning(f"Requested polarization {pol_upper} not in product. Available: {meta.polarizations}. Using {meta.polarizations[0]}.")
-                pol_upper = meta.polarizations[0]
-            else:
-                raise IncompatiblePolarizationError(f"No valid polarizations found in SAFE product {meta.product_name}")
+            raise IncompatiblePolarizationError(
+                f"Requested polarization '{pol_upper}' not present in SAFE product '{meta.product_name}'. "
+                f"Available polarizations: {meta.polarizations}. "
+                "Silent polarization switching or substitution is strictly prohibited."
+            )
+
+        # Range-Doppler Terrain Correction enforcement (Defect B)
+        if require_range_doppler:
+            if not SNAPGraphProcessor.is_snap_available():
+                raise TerrainCorrectionUnavailableError(
+                    f"Research-grade Sentinel-1 GRD processing requires Range-Doppler Terrain Correction "
+                    f"using ESA SNAP GPT with DEM '{dem_source}'. "
+                    "ESA SNAP `gpt` is not installed or available on PATH. "
+                    "The Python-native calibration path performs radiometric Level-1 XML LUT calibration "
+                    "and speckle filtering, but does NOT perform Range-Doppler DEM orthorectification. "
+                    "Silent downgrades to less rigorous methods are strictly prohibited. "
+                    "To proceed with terrain correction, install ESA SNAP and configure `gpt`."
+                )
+            logger.info(f"Executing ESA SNAP Range-Doppler Terrain Correction pipeline with DEM {dem_source}...")
+            return SNAPGraphProcessor.execute_snap_calibration_pipeline(
+                safe_path=safe_dir,
+                output_geotiff_path=output_path,
+                polarization=pol_upper,
+                target_crs=target_crs,
+                dem_source=dem_source,
+            )
 
         meas_path = meta.measurement_files[pol_upper]
         logger.info(f"Processing measurement raster: {meas_path.name} (Pol: {pol_upper})")
@@ -536,7 +618,6 @@ class AuthenticSentinel1Processor:
         linear_sigma0[valid_raw] = np.square(dn_arr[valid_raw]) / denom[valid_raw]
 
         # Border noise removal: mask zero or extreme low edge values
-        # In Sentinel-1 GRD, invalid edges have values close to 0
         edge_threshold = 1e-6
         linear_sigma0[linear_sigma0 < edge_threshold] = np.nan
 
@@ -575,6 +656,11 @@ class AuthenticSentinel1Processor:
                 SAR_UNIT="DECIBELS_DB",
                 CALIBRATION_METHOD="SENTINEL1_LEVEL1_XML_LUT_A_SIGMA",
                 SPECKLE_FILTER="LEE_5X5_LINEAR_DOMAIN",
+                TERRAIN_CORRECTION="NONE_PYTHON_NATIVE_APPROXIMATION",
+                RANGE_DOPPLER_APPLIED="FALSE",
+                DEM_SOURCE="NONE",
+                TARGET_CRS=target_crs,
+                RESOLUTION_METERS="10.0",
             )
 
         logger.info(f"Successfully produced calibrated Sentinel-1 raster: {output_path}")

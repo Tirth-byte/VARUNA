@@ -156,6 +156,7 @@ async function runAudit() {
     throw new Error('Rasters failed to load!');
   }
   await captureScreenshot('01_comparison_initial_50.png');
+  await captureScreenshot('comparison_highlight_off_50.png');
 
   // 2. Drag Slider Left to 20%
   console.log('Dragging slider to ~20% (revealing pre-event raster)...');
@@ -229,22 +230,123 @@ async function runAudit() {
   const highlightCheck = await evaluate(`(() => {
     const v = window.__varuna;
     const postEl = v.rasters.post.getElement();
-    const classEl = v.rasters.classified.getElement();
+    const classEl = v.rasters.changeHighlight ? v.rasters.changeHighlight.getElement() : null;
     const legend = document.getElementById('mapLegend');
     const rngOpacity = document.getElementById('rngHighlightOpacity');
     return {
       highlightActive: v.state.highlightChanges,
-      hasHazardLayer: v.map.hasLayer(v.rasters.classified),
+      hasHazardLayer: v.map.hasLayer(v.rasters.changeHighlight),
       classSrc: classEl ? classEl.src : null,
       classClip: classEl ? (classEl.style.clipPath || classEl.style.webkitClipPath) : null,
       postClip: postEl ? (postEl.style.clipPath || postEl.style.webkitClipPath) : null,
       hasOpacitySlider: !!rngOpacity,
+      opacityVal: v.state.highlightOpacity,
       comparisonSector: v.state.comparisonSector,
       legendText: legend ? legend.innerText.replace(/\\s+/g, ' ') : null
     };
   })()`);
   console.log('Highlight Changes Verification:', JSON.stringify(highlightCheck, null, 2));
+  if (!highlightCheck.highlightActive || !highlightCheck.hasHazardLayer) {
+    throw new Error('Highlight Changes failed to activate!');
+  }
+  if (Math.abs(highlightCheck.opacityVal - 0.35) > 0.01) {
+    throw new Error(`Default opacity is not 0.35: ${highlightCheck.opacityVal}`);
+  }
+  await captureScreenshot('comparison_highlight_on_50.png');
   await captureScreenshot('04_comparison_highlight_changes_corridor.png');
+
+  // 4b. Test Swipe at 20% with Highlight Changes ON
+  console.log('Testing swipe at 20% with Highlight Changes ON...');
+  await evaluate(`(() => {
+    const mapEl = document.getElementById('map');
+    const box = mapEl.getBoundingClientRect();
+    const targetX = box.left + (box.width * 0.20);
+    const handle = document.getElementById('swipeDividerHandle');
+    handle.dispatchEvent(new MouseEvent('mousedown', { clientX: box.left + (box.width * 0.50), clientY: box.top + 200, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: targetX, clientY: box.top + 200, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: targetX, clientY: box.top + 200, bubbles: true }));
+  })()`);
+  await sleep(300);
+
+  const swipe20HighlightCheck = await evaluate(`(() => {
+    const v = window.__varuna;
+    const postEl = v.rasters.post.getElement();
+    const classEl = v.rasters.changeHighlight ? v.rasters.changeHighlight.getElement() : null;
+    return {
+      postClip: postEl ? (postEl.style.clipPath || postEl.style.webkitClipPath) : null,
+      classClip: classEl ? (classEl.style.clipPath || classEl.style.webkitClipPath) : null,
+      isSynchronized: (postEl && classEl && (postEl.style.clipPath === classEl.style.clipPath))
+    };
+  })()`);
+  console.log('Swipe 20% with Highlight ON:', JSON.stringify(swipe20HighlightCheck, null, 2));
+  if (!swipe20HighlightCheck.isSynchronized) {
+    throw new Error('Clipping between post-raster and changeHighlight is not synchronized at 20%!');
+  }
+  await captureScreenshot('comparison_highlight_on_20.png');
+
+  // 4c. Test Swipe at 80% with Highlight Changes ON
+  console.log('Testing swipe at 80% with Highlight Changes ON...');
+  await evaluate(`(() => {
+    const mapEl = document.getElementById('map');
+    const box = mapEl.getBoundingClientRect();
+    const targetX = box.left + (box.width * 0.80);
+    const handle = document.getElementById('swipeDividerHandle');
+    handle.dispatchEvent(new MouseEvent('mousedown', { clientX: box.left + (box.width * 0.20), clientY: box.top + 200, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: targetX, clientY: box.top + 200, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: targetX, clientY: box.top + 200, bubbles: true }));
+  })()`);
+  await sleep(300);
+
+  const swipe80HighlightCheck = await evaluate(`(() => {
+    const v = window.__varuna;
+    const postEl = v.rasters.post.getElement();
+    const classEl = v.rasters.changeHighlight ? v.rasters.changeHighlight.getElement() : null;
+    return {
+      postClip: postEl ? (postEl.style.clipPath || postEl.style.webkitClipPath) : null,
+      classClip: classEl ? (classEl.style.clipPath || classEl.style.webkitClipPath) : null,
+      isSynchronized: (postEl && classEl && (postEl.style.clipPath === classEl.style.clipPath))
+    };
+  })()`);
+  console.log('Swipe 80% with Highlight ON:', JSON.stringify(swipe80HighlightCheck, null, 2));
+  if (!swipe80HighlightCheck.isSynchronized) {
+    throw new Error('Clipping between post-raster and changeHighlight is not synchronized at 80%!');
+  }
+  await captureScreenshot('comparison_highlight_on_80.png');
+
+  // 4d. Test Opacity Slider (Change to 50%)
+  console.log('Testing Opacity Slider (adjusting to 50%)...');
+  await evaluate(`(() => {
+    const rng = document.getElementById('rngHighlightOpacity');
+    rng.value = '50';
+    rng.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await sleep(200);
+
+  const opacityCheck = await evaluate(`(() => {
+    const v = window.__varuna;
+    const valEl = document.getElementById('valHighlightOpacity');
+    return {
+      stateOpacity: v.state.highlightOpacity,
+      layerOpacity: v.rasters.changeHighlight.options.opacity,
+      label: valEl ? valEl.textContent : null
+    };
+  })()`);
+  console.log('Opacity Slider Check:', JSON.stringify(opacityCheck, null, 2));
+  if (opacityCheck.stateOpacity !== 0.5 || opacityCheck.label !== '50%') {
+    throw new Error('Opacity slider adjustment failed!');
+  }
+
+  // Reset swipe back to 50%
+  await evaluate(`(() => {
+    const mapEl = document.getElementById('map');
+    const box = mapEl.getBoundingClientRect();
+    const targetX = box.left + (box.width * 0.50);
+    const handle = document.getElementById('swipeDividerHandle');
+    handle.dispatchEvent(new MouseEvent('mousedown', { clientX: box.left + (box.width * 0.80), clientY: box.top + 200, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: targetX, clientY: box.top + 200, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: targetX, clientY: box.top + 200, bubbles: true }));
+  })()`);
+  await sleep(200);
 
   // 5. Test Framing Presets (Bidur AOI03)
   console.log('Testing Framing Preset: Bidur (AOI03)...');
@@ -258,7 +360,7 @@ async function runAudit() {
   const aoi03Check = await evaluate(`(() => {
     const v = window.__varuna;
     const postEl = v.rasters.post.getElement();
-    const classEl = v.rasters.classified.getElement();
+    const classEl = v.rasters.changeHighlight ? v.rasters.changeHighlight.getElement() : null;
     const divider = document.getElementById('swipeDividerLine');
     return {
       center: [v.map.getCenter().lat.toFixed(4), v.map.getCenter().lng.toFixed(4)],
@@ -269,6 +371,7 @@ async function runAudit() {
     };
   })()`);
   console.log('Bidur (AOI03) Preset Verification:', JSON.stringify(aoi03Check, null, 2));
+  await captureScreenshot('comparison_highlight_aoi03_zoom.png');
   await captureScreenshot('05_comparison_aoi03_preset.png');
 
   // 6. Test Reset Extent

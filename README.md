@@ -84,12 +84,12 @@ The complete VARUNA dashboard and bilingual Situation Copilot are deployed and p
 <td width="50%" align="center" valign="top">
 
 <a href="dashboard/docs/SITUATION_REPORT_NEPAL_2026.pdf">
-  <img src="docs/assets/readme/preview-situation-report.png" alt="Operational Situation Report Cover" width="100%">
+  <img src="docs/assets/readme/preview-situation-report.png" alt="Operational Situation Report Preview" width="100%">
 </a>
 
-### Operational Situation Report (SITREP 01)
+### Operational Situation Report
 
-Rapid operational briefing mapping candidate radar flood extents, screened road exposure, and modeled settlement reachability.
+Satellite-derived flood indicators, infrastructure exposure, and response insights.
 
 **[View Situation Report (PDF) →](dashboard/docs/SITUATION_REPORT_NEPAL_2026.pdf)**
 
@@ -97,12 +97,12 @@ Rapid operational briefing mapping candidate radar flood extents, screened road 
 <td width="50%" align="center" valign="top">
 
 <a href="dashboard/docs/VARUNA_Research_Paper_FINAL.pdf">
-  <img src="docs/assets/readme/preview-research-paper.png" alt="Research Paper Cover" width="100%">
+  <img src="docs/assets/readme/preview-research-paper.png" alt="Academic Research Paper Preview" width="100%">
 </a>
 
-### Research Paper
+### Academic Research Paper
 
-Technical scientific report evaluating Sentinel-1 SAR change detection, topological road exposure modeling, and Copernicus EMSR927 validation.
+Sentinel-1 SAR methodology, surface-change analysis, and independent validation.
 
 **[View Research Paper (PDF) →](dashboard/docs/VARUNA_Research_Paper_FINAL.pdf)**
 

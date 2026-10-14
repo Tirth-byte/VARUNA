@@ -77,40 +77,40 @@ The complete VARUNA dashboard and bilingual Situation Copilot are deployed and p
 
 ## Featured Reports
 
-Alongside the live interactive dashboard, VARUNA provides two official, publication-grade reporting deliverables generated directly from the reproducible pipeline:
+<div align="center">
 
 <table width="100%">
 <tr>
-<td width="50%" valign="top">
+<td width="50%" align="center" valign="top">
 
-### 📄 Operational Situation Report (SITREP 01)
-**Decision-Grade Rapid Briefing · 1 Page · Multi-Agency Incident Command**
+<a href="dashboard/docs/SITUATION_REPORT_NEPAL_2026.pdf">
+  <img src="docs/assets/readme/preview-situation-report.png" alt="Operational Situation Report Preview" width="100%">
+</a>
 
-Synthesized tactical briefing designed for immediate incident response, field logistics, and emergency resource allocation.
+### Operational Situation Report (SITREP 01)
 
-* **Target Audience:** Incident Commanders, NDRRMA coordinators, civil protection authorities, and field logistics officers.
-* **Core Intelligence:** 35.12 km exposed road network, 9.62 km Pasang Lhamu Highway corridor, 6 candidate severed valley settlements, and 1,062 potentially exposed surveyed structures.
-* **Format:** Publication-grade single-page vector PDF ($\ge 650$ DPI) with high-contrast maps and actionable logistics tables.
+Rapid decision-grade briefing synthesizing satellite flood inundation, road network access cutoffs, and isolated communities for emergency incident response.
 
-[**👉 View Situation Report (PDF)**](dashboard/docs/SITUATION_REPORT_NEPAL_2026.pdf)
+**[View Situation Report (PDF) →](dashboard/docs/SITUATION_REPORT_NEPAL_2026.pdf)**
 
 </td>
-<td width="50%" valign="top">
+<td width="50%" align="center" valign="top">
 
-### 📑 Academic Research Paper
-**Peer-Reviewed Format Scientific Paper · 4 Pages · Earth Observation Standard**
+<a href="dashboard/docs/VARUNA_Research_Paper_FINAL.pdf">
+  <img src="docs/assets/readme/preview-research-paper.png" alt="Academic Research Paper Preview" width="100%">
+</a>
 
-Complete scientific manuscript documenting physical principles, radar calibration, topological graph analysis, and empirical ground-truth validation.
+### Academic Research Paper
 
-* **Target Audience:** Remote sensing scientists, GIS analysts, hydrologists, and scientific evaluation panels.
-* **Core Intelligence:** Sentinel-1 C-SAR calibrated backscatter physics ($\Delta\sigma^0$), dual-verified $126.60\text{ km}^2$ flood / $108.21\text{ km}^2$ debris, $37.16\%$ empirical coincidence with Copernicus EMSR927, and anti-hallucination guardrails.
-* **Format:** Multi-column IEEE/AGU publication layout with high-resolution scientific figures and exact mathematical definitions.
+Peer-reviewed scientific manuscript documenting Sentinel-1 SAR backscatter physics, Range-Doppler terrain correction, topological graph exposure routing, and held-out Copernicus EMSR927 empirical validation.
 
-[**👉 View Research Paper (PDF)**](dashboard/docs/VARUNA_Research_Paper_FINAL.pdf)
+**[View Research Paper (PDF) →](dashboard/docs/VARUNA_Research_Paper_FINAL.pdf)**
 
 </td>
 </tr>
 </table>
+
+</div>
 
 ---
 

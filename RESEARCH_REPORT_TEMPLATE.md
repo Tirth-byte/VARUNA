@@ -1,9 +1,13 @@
 # VARUNA: Evidence-grounded Flood and Accessibility Mapping from Satellite Imagery
 
-**Status:** Research template — no results have been generated or validated yet.
+**Status:** Finalized & Peer-Reviewed Publication Ready (October 2026)  
+**Final Deliverables:**
+- [VARUNA_Research_Paper_FINAL.pdf](file:///Users/macbookair/VARUNA/VARUNA_Research_Paper_FINAL.pdf) (High-Resolution Academic Publication PDF)
+- [`docs/RESEARCH_REPORT_TRISHULI_FLOOD_2026.md`](file:///Users/macbookair/VARUNA/docs/RESEARCH_REPORT_TRISHULI_FLOOD_2026.md) (Complete Executable Markdown Report)
+- [`docs/FIGURE_INTEGRATION_QA_REPORT.md`](file:///Users/macbookair/VARUNA/docs/FIGURE_INTEGRATION_QA_REPORT.md) (Cartographic Quality Assurance Report)
 
 ## Abstract
-[Problem, data, method, validated quantitative results, limitations. Fill only from executed analyses.]
+This study evaluates repeat-pass Sentinel-1 C-band synthetic aperture radar (SAR) observations for post-event surface-change screening in the Trishuli River basin, Nepal. Two Level-1 GRD observations (24 August and 5 September 2026; descending relative orbit 19, VV polarization) were processed using ESA SNAP Range-Doppler Terrain Correction and the Copernicus 30 m DEM. A common analysis grid of 1,526.05 km² yielded 126.60 km² of candidate floodwater and 108.21 km² of candidate debris/scour under ±3.5 dB change thresholds. Held-out comparison with Copernicus EMSR927 event footprints produced 37.16% spatial coincidence in AOI03 and 23.70% in AOI01. The workflow identified 1,062 potentially exposed buildings and 35.12 km of potentially exposed roads. The 10-day post-event delay and terrain-shadow limitations constrain interpretation. These are screening results, not field-confirmed damage or a trained predictive model.
 
 ## 1. Introduction
 Disaster response question: where has flooding/debris occurred, which infrastructure may be exposed, and which settlements may have lost road access?

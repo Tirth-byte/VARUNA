@@ -17,14 +17,19 @@
 [![ESA SNAP 10.0](https://img.shields.io/badge/ESA%20SNAP-10.0%20GPT-003366.svg?style=flat-square)](https://step.esa.int/)
 [![Tests 90 Passing](https://img.shields.io/badge/Tests-90%20Passing-brightgreen.svg?style=flat-square)](tests/)
 [![Track B Submission](https://img.shields.io/badge/Multimodal%20AI%20Hackathon%202026-Track%20B-teal.svg?style=flat-square)](#)
+[![Render Live](https://img.shields.io/badge/Render%20Live-varuna--c1m7.onrender.com-success.svg?style=flat-square&logo=render&logoColor=white)](https://varuna-c1m7.onrender.com)
 
-[Explore Workspaces](#explore-the-platform) • [View Architecture](#from-space-to-insight) • [Verified Numbers](#the-numbers) • [Run It Yourself](#run-it-yourself) • [Read Reports](#documentation-and-reports)
+**[🚀 Open Live Public Dashboard (https://varuna-c1m7.onrender.com)](https://varuna-c1m7.onrender.com)**
+
+[🚀 Live Dashboard](https://varuna-c1m7.onrender.com) • [Explore Workspaces](#explore-the-platform) • [View Architecture](#from-space-to-insight) • [Verified Numbers](#the-numbers) • [Run It Yourself](#run-it-yourself) • [Read Reports](#documentation-and-reports)
 
 ---
 
 </div>
 
 ## Table of Contents
+
+- [Live Cloud Deployment (Render)](#live-cloud-deployment-render)
 
 - [The Problem](#the-problem)
 - [Meet VARUNA](#meet-varuna)
@@ -52,6 +57,21 @@
 - [Limitations](#limitations)
 - [Credits and Attribution](#credits-and-attribution)
 - [Closing](#closing)
+
+---
+
+## Live Cloud Deployment (Render)
+
+The complete VARUNA dashboard and bilingual Situation Copilot are deployed and publicly accessible on Render:
+
+| Attribute | Deployment Detail |
+| :--- | :--- |
+| **Public Application URL** | **[https://varuna-c1m7.onrender.com](https://varuna-c1m7.onrender.com)** |
+| **Live API Health Check** | **[https://varuna-c1m7.onrender.com/api/v1/health](https://varuna-c1m7.onrender.com/api/v1/health)** |
+| **Hosting Platform** | Render (Web Service, Linux container) |
+| **Live Capabilities** | All 5 GIS workspaces, interactive swipe curtain, road exposure routing, EMSR927 truth validation, and live bilingual Situation Copilot |
+
+> **Note for Judges:** You can explore the live application directly in your browser without local installation. If the service was idle, allow ~30 seconds for the initial cold-start spin-up.
 
 ---
 
@@ -327,17 +347,13 @@ pip install -r requirements.txt
 
 ### 2. Launch the Interactive Dashboard
 
-```bash
-# Start lightweight dashboard HTTP server
-python3 -m http.server 8888 --directory dashboard
-```
-Open **`http://localhost:8888/index.html`** in your browser.
+> 💡 **Instant Cloud Access:** To inspect the live application immediately without running a local server, visit **[https://varuna-c1m7.onrender.com](https://varuna-c1m7.onrender.com)**.
 
-*(Optional: Launch the FastAPI REST service on port 8000)*:
 ```bash
+# Start the unified VARUNA application server (serves both UI and API)
 python3 -m uvicorn varuna.api.main:app --host 0.0.0.0 --port 8000
 ```
-Verify API health: `curl http://localhost:8000/api/v1/health`
+Open **`http://localhost:8000/index.html`** in your browser. Verify API health: `curl http://localhost:8000/api/v1/health`
 
 ### 3. Reproduce the Trishuli Case Study
 

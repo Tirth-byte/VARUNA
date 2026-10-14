@@ -6,7 +6,7 @@ services:
     plan: free
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: uvicorn varuna.api.main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
+    healthCheckPath: /api/v1/health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.10

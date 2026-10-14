@@ -1,11 +1,13 @@
 # VARUNA — Production Deployment Report for Render
 
-**Document Version:** 1.0.0  
+**Deployment Status:** **LIVE & VERIFIED**  
+**Public Application URL:** [https://varuna-c1m7.onrender.com](https://varuna-c1m7.onrender.com)  
+**Live API Health Probe:** [https://varuna-c1m7.onrender.com/api/v1/health](https://varuna-c1m7.onrender.com/api/v1/health)  
+**Document Version:** 1.1.0  
 **Generated Date:** October 14, 2026  
 **Application Target:** VARUNA — Mapping Impact From Space  
 **Repository:** [https://github.com/Tirth-byte/VARUNA](https://github.com/Tirth-byte/VARUNA)  
 **Deployment Blueprint:** `render.yaml` (Tracked in root)  
-**Release Commit SHA:** `b664c2fdd4adcaad7b49d6cf1c7df0e7b8c2ecda`  
 
 ---
 

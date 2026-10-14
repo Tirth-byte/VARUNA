@@ -84,12 +84,12 @@ The complete VARUNA dashboard and bilingual Situation Copilot are deployed and p
 <td width="50%" align="center" valign="top">
 
 <a href="dashboard/docs/SITUATION_REPORT_NEPAL_2026.pdf">
-  <img src="docs/assets/readme/preview-situation-report.png" alt="Operational Situation Report Preview" width="100%">
+  <img src="docs/assets/readme/preview-situation-report.png" alt="Operational Situation Report Cover" width="100%">
 </a>
 
 ### Operational Situation Report (SITREP 01)
 
-Rapid decision-grade briefing synthesizing satellite flood inundation, road network access cutoffs, and isolated communities for emergency incident response.
+Rapid operational briefing mapping candidate radar flood extents, screened road exposure, and modeled settlement reachability.
 
 **[View Situation Report (PDF) →](dashboard/docs/SITUATION_REPORT_NEPAL_2026.pdf)**
 
@@ -97,12 +97,12 @@ Rapid decision-grade briefing synthesizing satellite flood inundation, road netw
 <td width="50%" align="center" valign="top">
 
 <a href="dashboard/docs/VARUNA_Research_Paper_FINAL.pdf">
-  <img src="docs/assets/readme/preview-research-paper.png" alt="Academic Research Paper Preview" width="100%">
+  <img src="docs/assets/readme/preview-research-paper.png" alt="Research Paper Cover" width="100%">
 </a>
 
-### Academic Research Paper
+### Research Paper
 
-Peer-reviewed scientific manuscript documenting Sentinel-1 SAR backscatter physics, Range-Doppler terrain correction, topological graph exposure routing, and held-out Copernicus EMSR927 empirical validation.
+Technical scientific report evaluating Sentinel-1 SAR change detection, topological road exposure modeling, and Copernicus EMSR927 validation.
 
 **[View Research Paper (PDF) →](dashboard/docs/VARUNA_Research_Paper_FINAL.pdf)**
 

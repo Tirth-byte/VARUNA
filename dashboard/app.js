@@ -16,6 +16,8 @@
     swipePosition: 0.5,            // 0.0 to 1.0 (fraction of map width)
     comparisonMode: 'swipe',       // 'swipe' | 'pre' | 'post'
     comparisonSector: 'full',      // 'full' | 'corridor' | 'aoi03' | 'aoi01'
+    highlightChanges: false,       // Authentic SAR backscatter change overlay (blue flood / orange debris)
+    highlightOpacity: 0.65,        // Overlay opacity for change interpretation
     copilotLang: 'en',             // 'en' | 'ne'
     panelOpen: true,
     inspectedFeature: null
@@ -330,16 +332,25 @@
     if (swipeLine) swipeLine.style.left = `${x}px`;
 
     const postEl = rasters.post.getElement();
+    const classEl = (state.highlightChanges && map.hasLayer(rasters.classified)) ? rasters.classified.getElement() : null;
     if (!postEl) return;
 
     if (state.comparisonMode === 'pre') {
       postEl.style.clipPath = 'inset(0 0 0 100%)';
       postEl.style.webkitClipPath = 'inset(0 0 0 100%)';
+      if (classEl) {
+        classEl.style.clipPath = 'inset(0 0 0 100%)';
+        classEl.style.webkitClipPath = 'inset(0 0 0 100%)';
+      }
       return;
     }
     if (state.comparisonMode === 'post') {
       postEl.style.clipPath = 'none';
       postEl.style.webkitClipPath = 'none';
+      if (classEl) {
+        classEl.style.clipPath = 'none';
+        classEl.style.webkitClipPath = 'none';
+      }
       return;
     }
 
@@ -348,15 +359,20 @@
     const dividerClientX = mapBox.left + x;
     const localX = dividerClientX - postBox.left;
 
+    let clipStr = 'none';
     if (localX <= 0) {
-      postEl.style.clipPath = 'none';
-      postEl.style.webkitClipPath = 'none';
+      clipStr = 'none';
     } else if (localX >= postBox.width) {
-      postEl.style.clipPath = 'inset(0 0 0 100%)';
-      postEl.style.webkitClipPath = 'inset(0 0 0 100%)';
+      clipStr = 'inset(0 0 0 100%)';
     } else {
-      postEl.style.clipPath = `inset(0 0 0 ${localX}px)`;
-      postEl.style.webkitClipPath = `inset(0 0 0 ${localX}px)`;
+      clipStr = `inset(0 0 0 ${localX}px)`;
+    }
+
+    postEl.style.clipPath = clipStr;
+    postEl.style.webkitClipPath = clipStr;
+    if (classEl) {
+      classEl.style.clipPath = clipStr;
+      classEl.style.webkitClipPath = clipStr;
     }
   }
 
@@ -449,6 +465,10 @@
     if (wsKey === 'comparison') {
       rasters.pre.addTo(map);
       rasters.post.addTo(map);
+      if (state.highlightChanges) {
+        rasters.classified.setOpacity(state.highlightOpacity);
+        rasters.classified.addTo(map);
+      }
       if (state.comparisonMode === 'swipe') {
         swipeContainer.classList.add('active');
         if (swipeLabelsEl) swipeLabelsEl.style.display = 'flex';
@@ -541,6 +561,12 @@
           <option value="aoi03" ${state.comparisonSector === 'aoi03' ? 'selected' : ''}>Bidur (AOI03)</option>
           <option value="aoi01" ${state.comparisonSector === 'aoi01' ? 'selected' : ''}>Syapru Besi (AOI01)</option>
         </select>
+        <div class="toolbar-divider"></div>
+        <button class="toolbar-segment-btn ${state.highlightChanges ? 'active' : ''}" id="btnToggleHighlightChanges" title="Toggle authentic SAR backscatter-change overlay (blue flood / orange debris)">Highlight Changes ${state.highlightChanges ? '● ON' : '○ OFF'}</button>
+        ${state.highlightChanges ? `
+          <span class="toolbar-control-label" style="margin-left:4px;">Opacity:</span>
+          <input type="range" id="rngHighlightOpacity" min="20" max="100" value="${Math.round(state.highlightOpacity * 100)}" style="width:60px; height:4px; vertical-align:middle; cursor:pointer;" title="Change Overlay Opacity">
+        ` : ''}
       `;
     } else if (ws === 'change') {
       html = `
@@ -674,6 +700,36 @@
           setTimeout(() => updateSwipeDivider(), 50);
         });
       }
+
+      const btnHighlight = document.getElementById('btnToggleHighlightChanges');
+      if (btnHighlight) {
+        btnHighlight.addEventListener('click', () => {
+          state.highlightChanges = !state.highlightChanges;
+          if (state.highlightChanges) {
+            rasters.classified.setOpacity(state.highlightOpacity);
+            rasters.classified.addTo(map);
+            if (state.comparisonSector === 'full') {
+              state.comparisonSector = 'corridor';
+              map.fitBounds(EXTENTS.corridor.bounds, { padding: [15, 15] });
+            }
+          } else {
+            if (map.hasLayer(rasters.classified)) {
+              map.removeLayer(rasters.classified);
+            }
+          }
+          updateSwipeDivider();
+          renderWorkspaceToolbar();
+          renderLegend();
+        });
+      }
+
+      const rngHighlight = document.getElementById('rngHighlightOpacity');
+      if (rngHighlight) {
+        rngHighlight.addEventListener('input', (e) => {
+          state.highlightOpacity = parseFloat(e.target.value) / 100.0;
+          rasters.classified.setOpacity(state.highlightOpacity);
+        });
+      }
     } else if (ws === 'change') {
       toolbarContainer.querySelectorAll('[data-type]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -796,6 +852,20 @@
           <summary>Radar Backscatter Physics</summary>
           <div class="accordion-content">
             Calibrated SAR intensity reflects surface roughness and dielectric permittivity. Smooth standing water causes specular reflection away from the radar antenna, producing dark backscatter drops. Rugged terrain, coarsened debris, and boulder deposits cause diffuse volume scattering, appearing bright.
+          </div>
+        </details>
+
+        <details class="scientific-accordion caveat" open>
+          <summary>10-Day Acquisition Lag & Peak Flood Note</summary>
+          <div class="accordion-content">
+            <strong>Post-Event Scene: Sept 05, 2026 (10 days post-peak).</strong> Detections capture residual inundation, saturated alluvium, and scoured gravel bars rather than peak flood depth (Aug 26). Lowland floodwaters had receded significantly, while braided gravel bed coarsening remained clearly detectable.
+          </div>
+        </details>
+
+        <details class="scientific-accordion">
+          <summary>Surface Anomalies vs. Structural Failure</summary>
+          <div class="accordion-content">
+            SAR backscatter changes (Δσ°) identify physical surface anomalies, not ground-verified structural collapse. Radar layover, mountain shadow, and steep Himalayan slopes can introduce false candidates. Contiguous morphology filtering (MMU ≥ 1,000 m²) is applied in change analysis to isolate genuine valley hazard footprints.
           </div>
         </details>
 
@@ -1364,16 +1434,35 @@ Generated: 2026-10-14 UTC | Disaster Date: August 26, 2026 | Sensor: Sentinel-1 
     let html = '';
 
     if (ws === 'comparison') {
-      legendTitle.textContent = 'SAR Intensity Scale';
-      html = `
-        <div class="legend-row">
-          <div style="width:100%; height:8px; border-radius:2px; background:linear-gradient(to right, #000 0%, #777 50%, #fff 100%);"></div>
-        </div>
-        <div style="display:flex; justify-content:space-between; font-size:9.5px; color:var(--text-tertiary); font-family:var(--font-mono); margin-top:2px;">
-          <span>-22.0 dB (Water/Specular)</span>
-          <span>+2.0 dB (Rough Terrain)</span>
-        </div>
-      `;
+      if (state.highlightChanges) {
+        legendTitle.textContent = 'SAR Intensity & Anomaly Scale';
+        html = `
+          <div style="font-size:10px; font-weight:600; margin-bottom:3px; color:var(--text-secondary);">SAR Intensity (dB)</div>
+          <div class="legend-row">
+            <div style="width:100%; height:6px; border-radius:2px; background:linear-gradient(to right, #000 0%, #777 50%, #fff 100%);"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:9px; color:var(--text-tertiary); font-family:var(--font-mono); margin-bottom:6px;">
+            <span>-22.0 dB (Water)</span>
+            <span>+2.0 dB (Rough)</span>
+          </div>
+          <div style="border-top:1px solid var(--border-subtle); padding-top:4px; margin-top:3px;">
+            <div style="font-size:10px; font-weight:600; margin-bottom:3px; color:var(--text-primary);">Change Overlay (Δσ°)</div>
+            <div class="legend-row"><div class="legend-swatch flood" style="width:12px; height:8px;"></div><span style="font-size:10px;">Drop ≤ -3.5 dB (Candidate Flood)</span></div>
+            <div class="legend-row"><div class="legend-swatch debris" style="width:12px; height:8px;"></div><span style="font-size:10px;">Gain ≥ +3.5 dB (Candidate Debris)</span></div>
+          </div>
+        `;
+      } else {
+        legendTitle.textContent = 'SAR Intensity Scale';
+        html = `
+          <div class="legend-row">
+            <div style="width:100%; height:8px; border-radius:2px; background:linear-gradient(to right, #000 0%, #777 50%, #fff 100%);"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:9.5px; color:var(--text-tertiary); font-family:var(--font-mono); margin-top:2px;">
+            <span>-22.0 dB (Water/Specular)</span>
+            <span>+2.0 dB (Rough Terrain)</span>
+          </div>
+        `;
+      }
     } else if (ws === 'change') {
       legendTitle.textContent = 'SAR Change Classification';
       html = `
@@ -1577,6 +1666,7 @@ Generated: 2026-10-14 UTC | Disaster Date: August 26, 2026 | Sensor: Sentinel-1 
       }
     }, 100);
 
+    window.__varuna = { state, rasters, map, updateSwipeDivider, switchWorkspace };
     console.log('VARUNA Earth Observation Workspace initialized with workspace:', initialWs, 'sector:', initialSector);
   }
 

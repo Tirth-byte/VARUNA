@@ -1192,8 +1192,12 @@
       </div>
     `;
 
-    // Attempt backend query if API server is reachable, with immediate reliable offline fallback
-    fetch('http://localhost:8000/api/v1/copilot/query', {
+    // Prefer relative endpoint on production hosts; fall back to localhost:8000 if served from a static dev server
+    const apiEndpoint = (window.location.port === '8888')
+      ? 'http://localhost:8000/api/v1/copilot/query'
+      : '/api/v1/copilot/query';
+
+    fetch(apiEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: query, language: isNe ? 'ne' : 'en' })

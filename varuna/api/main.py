@@ -88,6 +88,13 @@ app.add_middleware(
 pipeline_manager = JobPipelineManager()
 
 
+@app.get("/health")
+@app.get("/healthz")
+def root_health() -> Dict[str, str]:
+    """Lightweight health check endpoint for Render and container load balancers."""
+    return {"status": "ok", "service": "varuna"}
+
+
 @app.get("/api/v1/health", response_model=HealthResponse)
 def get_health() -> HealthResponse:
     """Return system health, library versions, and external API readiness."""
@@ -443,4 +450,21 @@ def generate_copilot_report(req: CopilotReportRequest) -> CopilotReportResponseM
         disclosures_and_limitations=briefing.disclosures_and_limitations,
         raw_markdown=briefing.raw_markdown,
     )
+
+
+# Mount dashboard static directory at root "/" to serve the interactive web UI and all assets
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+
+dashboard_dir = Path(__file__).resolve().parent.parent.parent / "dashboard"
+if dashboard_dir.exists():
+    app.mount("/", StaticFiles(directory=str(dashboard_dir), html=True), name="dashboard")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    host = os.environ.get("HOST", "0.0.0.0")
+    uvicorn.run("varuna.api.main:app", host=host, port=port, reload=False)
+
 

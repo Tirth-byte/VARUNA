@@ -21,7 +21,7 @@
 
 **[🚀 Open Live Public Dashboard (https://varuna-c1m7.onrender.com)](https://varuna-c1m7.onrender.com)**
 
-[🚀 Live Dashboard](https://varuna-c1m7.onrender.com) • [Explore Workspaces](#explore-the-platform) • [View Architecture](#from-space-to-insight) • [Verified Numbers](#the-numbers) • [Run It Yourself](#run-it-yourself) • [Read Reports](#documentation-and-reports)
+[🚀 Live Dashboard](https://varuna-c1m7.onrender.com) • [📄 Situation Report (PDF)](dashboard/docs/SITUATION_REPORT_NEPAL_2026.pdf) • [📑 Research Paper (PDF)](dashboard/docs/VARUNA_Research_Paper_FINAL.pdf) • [Explore Workspaces](#explore-the-platform) • [View Architecture](#from-space-to-insight) • [Verified Numbers](#the-numbers) • [Run It Yourself](#run-it-yourself) • [Documentation](#documentation-and-reports)
 
 ---
 
@@ -30,7 +30,7 @@
 ## Table of Contents
 
 - [Live Cloud Deployment (Render)](#live-cloud-deployment-render)
-
+- [Featured Reports](#featured-reports)
 - [The Problem](#the-problem)
 - [Meet VARUNA](#meet-varuna)
 - [See It in Action](#see-it-in-action)
@@ -72,6 +72,45 @@ The complete VARUNA dashboard and bilingual Situation Copilot are deployed and p
 | **Live Capabilities** | All 5 GIS workspaces, interactive swipe curtain, road exposure routing, EMSR927 truth validation, and live bilingual Situation Copilot |
 
 > **Note for Judges:** You can explore the live application directly in your browser without local installation. If the service was idle, allow ~30 seconds for the initial cold-start spin-up.
+
+---
+
+## Featured Reports
+
+Alongside the live interactive dashboard, VARUNA provides two official, publication-grade reporting deliverables generated directly from the reproducible pipeline:
+
+<table width="100%">
+<tr>
+<td width="50%" valign="top">
+
+### 📄 Operational Situation Report (SITREP 01)
+**Decision-Grade Rapid Briefing · 1 Page · Multi-Agency Incident Command**
+
+Synthesized tactical briefing designed for immediate incident response, field logistics, and emergency resource allocation.
+
+* **Target Audience:** Incident Commanders, NDRRMA coordinators, civil protection authorities, and field logistics officers.
+* **Core Intelligence:** 35.12 km exposed road network, 9.62 km Pasang Lhamu Highway corridor, 6 candidate severed valley settlements, and 1,062 potentially exposed surveyed structures.
+* **Format:** Publication-grade single-page vector PDF ($\ge 650$ DPI) with high-contrast maps and actionable logistics tables.
+
+[**👉 View Situation Report (PDF)**](dashboard/docs/SITUATION_REPORT_NEPAL_2026.pdf)
+
+</td>
+<td width="50%" valign="top">
+
+### 📑 Academic Research Paper
+**Peer-Reviewed Format Scientific Paper · 4 Pages · Earth Observation Standard**
+
+Complete scientific manuscript documenting physical principles, radar calibration, topological graph analysis, and empirical ground-truth validation.
+
+* **Target Audience:** Remote sensing scientists, GIS analysts, hydrologists, and scientific evaluation panels.
+* **Core Intelligence:** Sentinel-1 C-SAR calibrated backscatter physics ($\Delta\sigma^0$), dual-verified $126.60\text{ km}^2$ flood / $108.21\text{ km}^2$ debris, $37.16\%$ empirical coincidence with Copernicus EMSR927, and anti-hallucination guardrails.
+* **Format:** Multi-column IEEE/AGU publication layout with high-resolution scientific figures and exact mathematical definitions.
+
+[**👉 View Research Paper (PDF)**](dashboard/docs/VARUNA_Research_Paper_FINAL.pdf)
+
+</td>
+</tr>
+</table>
 
 ---
 
@@ -405,11 +444,10 @@ All formal submission deliverables are available in the repository in both execu
 
 | Document | Format | Pages | Path / Clickable Link |
 | :--- | :---: | :---: | :--- |
-| **Operational Situation Report (SITREP 01)** | PDF | **1 Page** | [`docs/SITUATION_REPORT_NEPAL_2026.pdf`](docs/SITUATION_REPORT_NEPAL_2026.pdf) |
+| **Operational Situation Report (SITREP 01)** | PDF | **1 Page** | [`dashboard/docs/SITUATION_REPORT_NEPAL_2026.pdf`](dashboard/docs/SITUATION_REPORT_NEPAL_2026.pdf) |
 | **Operational Situation Report (SITREP 01)** | Markdown | 1 Page | [`docs/SITUATION_REPORT_NEPAL_2026.md`](docs/SITUATION_REPORT_NEPAL_2026.md) |
-| **Academic Research Paper (Refined)** | PDF | **4 Pages** | [`docs/VARUNA_Research_Paper_FINAL.pdf`](docs/VARUNA_Research_Paper_FINAL.pdf) |
-| **Comprehensive Research Report** | PDF | **6 Pages** | [`docs/RESEARCH_REPORT_TRISHULI_FLOOD_2026.pdf`](docs/RESEARCH_REPORT_TRISHULI_FLOOD_2026.pdf) |
-| **Comprehensive Research Report** | Markdown | Full Report | [`docs/RESEARCH_REPORT_TRISHULI_FLOOD_2026.md`](docs/RESEARCH_REPORT_TRISHULI_FLOOD_2026.md) |
+| **Academic Research Paper (Refined)** | PDF | **4 Pages** | [`dashboard/docs/VARUNA_Research_Paper_FINAL.pdf`](dashboard/docs/VARUNA_Research_Paper_FINAL.pdf) |
+| **Academic Research Paper (Source)** | Markdown | Full Manuscript | [`docs/RESEARCH_REPORT_TRISHULI_FLOOD_2026.md`](docs/RESEARCH_REPORT_TRISHULI_FLOOD_2026.md) |
 | **Cartographic Quality Assurance Report** | Markdown | — | [`docs/FIGURE_INTEGRATION_QA_REPORT.md`](docs/FIGURE_INTEGRATION_QA_REPORT.md) |
 | **Requirements Traceability Matrix** | Markdown | — | [`docs/FINAL_COMPLIANCE_AUDIT.md`](docs/FINAL_COMPLIANCE_AUDIT.md) |
 | **Pre-Demo SAR Verification Audit** | Markdown | — | [`docs/FINAL_PRE_DEMO_SAR_AUDIT.md`](docs/FINAL_PRE_DEMO_SAR_AUDIT.md) |

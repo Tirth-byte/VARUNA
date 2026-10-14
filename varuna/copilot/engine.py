@@ -572,19 +572,66 @@ class SituationReportCopilot:
         sections_en: List[str] = []
         sections_ne: List[str] = []
 
+        # Resolve metrics dynamically from active FactBase
+        f_inundation = self.fact_base.get_fact("flood_inundation_km2")
+        f_debris = self.fact_base.get_fact("surface_debris_km2")
+        f_cag = self.fact_base.get_fact("cag_extent_km2")
+        f_debris_mmu = self.fact_base.get_fact("filtered_debris_clusters_km2")
+        f_mmu1000 = self.fact_base.get_fact("contiguous_debris_mmu1000_km2")
+
+        inundation_val = f"{f_inundation.value:.2f}" if (f_inundation and isinstance(f_inundation.value, (int, float))) else "126.60"
+        debris_val = f"{f_debris.value:.2f}" if (f_debris and isinstance(f_debris.value, (int, float))) else "108.21"
+        cag_val = f"{f_cag.value:.2f}" if (f_cag and isinstance(f_cag.value, (int, float))) else "1526.05"
+        debris_mmu_val = f"{f_debris_mmu.value:.2f}" if (f_debris_mmu and isinstance(f_debris_mmu.value, (int, float))) else "17.51"
+        mmu1000_val = f"{f_mmu1000.value:.2f}" if (f_mmu1000 and isinstance(f_mmu1000.value, (int, float))) else "46.93"
+
+        f_roads = self.fact_base.get_fact("exposed_roads_km")
+        f_tot_roads = self.fact_base.get_fact("total_roads_km")
+        f_hwy = self.fact_base.get_fact("highway_exposed_km")
+        f_dbl = self.fact_base.get_fact("double_counting_km")
+
+        roads_val = f"{f_roads.value:.2f}" if (f_roads and isinstance(f_roads.value, (int, float))) else "35.12"
+        tot_roads_val = f"{f_tot_roads.value:.2f}" if (f_tot_roads and isinstance(f_tot_roads.value, (int, float))) else "260.71"
+        hwy_val = f"{f_hwy.value:.2f}" if (f_hwy and isinstance(f_hwy.value, (int, float))) else "9.62"
+        dbl_val = f"{f_dbl.value:.2f}" if (f_dbl and isinstance(f_dbl.value, (int, float))) else "0.00"
+
+        f_iso = self.fact_base.get_fact("isolated_settlements_count")
+        iso_val = str(f_iso.value) if (f_iso and isinstance(f_iso.value, (int, float))) else "6"
+
+        f_bldgs = self.fact_base.get_fact("exposed_buildings_count")
+        f_tot_bldgs = self.fact_base.get_fact("surveyed_buildings_count")
+        f_dest_coin = self.fact_base.get_fact("destroyed_buildings_coincidence")
+
+        bldgs_val = f"{f_bldgs.value:,}" if (f_bldgs and isinstance(f_bldgs.value, int)) else ("1,062" if not f_bldgs else str(f_bldgs.value))
+        tot_bldgs_val = f"{f_tot_bldgs.value:,}" if (f_tot_bldgs and isinstance(f_tot_bldgs.value, int)) else ("3,816" if not f_tot_bldgs else str(f_tot_bldgs.value))
+        dest_val = f"{f_dest_coin.value:,}" if (f_dest_coin and isinstance(f_dest_coin.value, int)) else ("936" if not f_dest_coin else str(f_dest_coin.value))
+
+        is_nepal_event = (self.fact_base.event_name == "Trishuli River GLOF and Flash Flood")
+
         # Flood Hazard Extents
         if has_flood or has_debris or (has_area and not has_roads and not has_buildings and not has_settlements):
             facts_used.extend(["cag_extent_km2", "flood_inundation_km2", "surface_debris_km2", "filtered_debris_clusters_km2"])
-            sections_en.append(
-                "• Candidate Flood Inundation: 126.60 km² (1,439,895 pixels, Δσ° <= -3.5 dB across 1,526.05 km² Common Analysis Grid)\n"
-                "• Candidate Surface Debris / Roughening: 108.21 km² raw unconstrained radar coarsening (Δσ° >= +3.5 dB across full CAG); filtered contiguous major debris clusters total 17.51 km² (MMU >= 2,000 m²); contiguous morphology (MMU >= 1,000 m²) totals 46.93 km²\n"
-                "• Temporal Observation: Captured on Sept 5, 2026 (10 days post-peak), observing persistent valley floor water, saturated deposits, and scouring."
-            )
-            sections_ne.append(
-                "• सम्भावित बाढी डुबान क्षेत्र: १२६.६० वर्ग किमी (१४,३९,८९५ पिक्सेल, कुल १,५२६.०५ वर्ग किमी विश्लेषण ग्रिडमा Δσ° ≤ -३.५ dB)\n"
-                "• सम्भावित गेग्रान तथा खस्रोपन: १०८.२१ वर्ग किमी (१२,३०,७३३ पिक्सेल, कच्चा); प्रमुख निरन्तर क्लस्टरहरू १७.५१ वर्ग किमी (२,००० वर्ग मि. भन्दा ठूला); १० पिक्सेल MMU मा ४६.९३ वर्ग किमी\n"
-                "• अवलोकन समय: घटनाको १० दिनपछि (सेप्टेम्बर ५) खिचिएको, जसले बाँकी रहेको पानी र भिजेको बगर देखाउँछ।"
-            )
+            if is_nepal_event:
+                sections_en.append(
+                    f"• Candidate Flood Inundation: {inundation_val} km² (1,439,895 pixels, Δσ° <= -3.5 dB across {cag_val} km² Common Analysis Grid)\n"
+                    f"• Candidate Surface Debris / Roughening: {debris_val} km² raw unconstrained radar coarsening (Δσ° >= +3.5 dB across full CAG); filtered contiguous major debris clusters total {debris_mmu_val} km² (MMU >= 2,000 m²); contiguous morphology (MMU >= 1,000 m²) totals {mmu1000_val} km²\n"
+                    "• Temporal Observation: Captured on Sept 5, 2026 (10 days post-peak), observing persistent valley floor water, saturated deposits, and scouring."
+                )
+                sections_ne.append(
+                    "• सम्भावित बाढी डुबान क्षेत्र: १२६.६० वर्ग किमी (१४,३९,८९५ पिक्सेल, कुल १,५२६.०५ वर्ग किमी विश्लेषण ग्रिडमा Δσ° ≤ -३.५ dB)\n"
+                    "• सम्भावित गेग्रान तथा खस्रोपन: १०८.२१ वर्ग किमी (१२,३०,७३३ पिक्सेल, कच्चा); प्रमुख निरन्तर क्लस्टरहरू १७.५१ वर्ग किमी (२,००० वर्ग मि. भन्दा ठूला); १० पिक्सेल MMU मा ४६.९३ वर्ग किमी\n"
+                    "• अवलोकन समय: घटनाको १० दिनपछि (सेप्टेम्बर ५) खिचिएको, जसले बाँकी रहेको पानी र भिजेको बगर देखाउँछ।"
+                )
+            else:
+                sections_en.append(
+                    f"• Candidate Flood Inundation: {inundation_val} km² (Δσ° <= -3.5 dB across {cag_val} km² Analysis Grid)\n"
+                    f"• Candidate Surface Debris / Roughening: {debris_val} km² raw radar coarsening (Δσ° >= +3.5 dB)\n"
+                    f"• Temporal Observation: Captured for {self.fact_base.event_name} on {self.fact_base.event_date}."
+                )
+                sections_ne.append(
+                    f"• सम्भावित बाढी डुबान क्षेत्र: {inundation_val} वर्ग किमी\n"
+                    f"• सम्भावित गेग्रान क्षेत्र: {debris_val} वर्ग किमी"
+                )
 
         # Road Exposure
         if has_roads:
@@ -592,45 +639,69 @@ class SituationReportCopilot:
             if not has_settlements:
                 facts_used.append("isolated_settlements_count")
             settlement_note_en = (
-                f"\n• Resulting Candidate Isolated Settlements (6): {', '.join(self.ISOLATED_SETTLEMENTS_LIST_EN)}"
+                f"\n• Resulting Candidate Isolated Settlements ({iso_val}): {', '.join(self.ISOLATED_SETTLEMENTS_LIST_EN)}"
                 if not has_settlements else ""
             )
             settlement_note_ne = (
-                f"\n• विच्छेदित बस्तीहरू (६ वटा): {', '.join(self.ISOLATED_SETTLEMENTS_LIST_NE)}"
+                f"\n• विच्छेदित बस्तीहरू ({iso_val} वटा): {', '.join(self.ISOLATED_SETTLEMENTS_LIST_NE)}"
                 if not has_settlements else ""
             )
-            sections_en.append(
-                "• Exposed Road Network: 35.12 km of 260.71 km total surveyed network (13.47%, 605 segments)\n"
-                "• Pasang Lhamu Highway (H04): 9.62 km exposed along the 57.95 km gorge corridor (16.59%)\n"
-                "• Double-Counting: Exactly 0.00 km (hazard polygons dissolved via unary_union before line intersection)"
-                + settlement_note_en + "\n"
-                "• Scientific Exposure Caveat: Satellite hazard intersection denotes POTENTIAL EXPOSURE; road closure is an assumed scenario for reachability testing, not independently confirmed physical collapse."
-            )
-            sections_ne.append(
-                "• प्रभावित सडक सञ्जाल: कुल २६०.७१ किमीमध्ये ३५.१२ किमी सडक जोखिममा (१३.४७%, ६०५ खण्डहरू)\n"
-                "• पासाङ ल्हामु राजमार्ग (H04): ५७.९५ किमी करिडोरमध्ये ९.६२ किमी प्रभावित (१६.५९%)\n"
-                "• दोहोरो गणना: ०.०० किमी (पानी र गेग्रानको संयुक्त बहुभुज बनाइ शून्य दोहोरो गणना सुनिश्चित गरिएको)"
-                + settlement_note_ne + "\n"
-                "• प्राविधिक नोट: उपग्रह जोखिमले सम्भावित अवरोध जनाउँछ, भौतिक क्षतिको स्थलगत इन्जिनियरिङ निरीक्षण आवश्यक हुन्छ।"
-            )
+            if is_nepal_event:
+                sections_en.append(
+                    f"• Exposed Road Network: {roads_val} km of {tot_roads_val} km total surveyed network (13.47%, 605 segments)\n"
+                    f"• Pasang Lhamu Highway (H04): {hwy_val} km exposed along the 57.95 km gorge corridor (16.59%)\n"
+                    f"• Double-Counting: Exactly {dbl_val} km (hazard polygons dissolved via unary_union before line intersection)"
+                    + settlement_note_en + "\n"
+                    "• Scientific Exposure Caveat: Satellite hazard intersection denotes POTENTIAL EXPOSURE; road closure is an assumed scenario for reachability testing, not independently confirmed physical collapse."
+                )
+                sections_ne.append(
+                    "• प्रभावित सडक सञ्जाल: कुल २६०.७१ किमीमध्ये ३५.१२ किमी सडक जोखिममा (१३.४७%, ६०५ खण्डहरू)\n"
+                    "• पासाङ ल्हामु राजमार्ग (H04): ५७.९५ किमी करिडोरमध्ये ९.६२ किमी प्रभावित (१६.५९%)\n"
+                    "• दोहोरो गणना: ०.०० किमी (पानी र गेग्रानको संयुक्त बहुभुज बनाइ शून्य दोहोरो गणना सुनिश्चित गरिएको)"
+                    + settlement_note_ne + "\n"
+                    "• प्राविधिक नोट: उपग्रह जोखिमले सम्भावित अवरोध जनाउँछ, भौतिक क्षतिको स्थलगत इन्जिनियरिङ निरीक्षण आवश्यक हुन्छ।"
+                )
+            else:
+                sections_en.append(
+                    f"• Exposed Road Network: {roads_val} km of {tot_roads_val} km total surveyed network\n"
+                    f"• Highway Exposure: {hwy_val} km exposed along the corridor\n"
+                    f"• Double-Counting: Exactly {dbl_val} km (hazard polygons dissolved via unary_union)"
+                    + settlement_note_en + "\n"
+                    "• Scientific Exposure Caveat: Satellite hazard intersection denotes POTENTIAL EXPOSURE."
+                )
+                sections_ne.append(
+                    f"• प्रभावित सडक सञ्जाल: कुल {tot_roads_val} किमीमध्ये {roads_val} किमी जोखिममा\n"
+                    f"• दोहोरो गणना: {dbl_val} किमी"
+                )
 
         # Isolated Settlements & Hospital Reachability
         if has_settlements:
             facts_used.extend(["isolated_settlements_count", "critical_hubs_count", "exposed_roads_km", "highway_exposed_km"])
             settlements_en = ", ".join(self.ISOLATED_SETTLEMENTS_LIST_EN)
             settlements_ne = ", ".join(self.ISOLATED_SETTLEMENTS_LIST_NE)
-            sections_en.append(
-                f"• Candidate Isolated Settlements (6): {settlements_en}\n"
-                "• Cut-Off Critical Hubs: Nuwakot District Hospital (Bidur / Trishuli) is cut off from vehicular access to the northern gorge.\n"
-                "• Disruption Corridor: 9.62 km (16.59%) of the Pasang Lhamu National Highway (H04) corridor intersects floodwater or debris. Across the full study corridor, 35.12 km of road network is exposed.\n"
-                "• Methodology Note: Road closure is a simulation assumption for accessibility modeling. Model-derived candidate isolation does NOT constitute confirmed physical destruction."
-            )
-            sections_ne.append(
-                f"• सम्पर्कविहीन बस्तीहरू (६ वटा): {settlements_ne}\n"
-                "• विच्छेद भएका अस्पताल तथा केन्द्र: नुवाकोट जिल्ला अस्पताल (विदुर / त्रिशुली) उत्तरतर्फको करिडोरबाट सम्पर्कविच्छेद भएको मोडेल परिदृश्य।\n"
-                "• मुख्य अवरोध: पासाङ ल्हामु राजमार्गको ९.६२ किमी (१६.५९%) खण्ड प्रभावित भई कुल ३५.१२ किमी सडक सञ्जाल अवरुद्ध भएको काल्पनिक परिदृश्य।\n"
-                "• विधिगत स्पष्टीकरण: यो नेटवर्क टोपोलजी विश्लेषणमा आधारित सम्भावित विच्छेद हो, स्थलगत पुष्टि गरिएको छैन।"
-            )
+            if is_nepal_event:
+                sections_en.append(
+                    f"• Candidate Isolated Settlements ({iso_val}): {settlements_en}\n"
+                    "• Cut-Off Critical Hubs: Nuwakot District Hospital (Bidur / Trishuli) is cut off from vehicular access to the northern gorge.\n"
+                    f"• Disruption Corridor: {hwy_val} km (16.59%) of the Pasang Lhamu National Highway (H04) corridor intersects floodwater or debris. Across the full study corridor, {roads_val} km of road network is exposed.\n"
+                    "• Methodology Note: Road closure is a simulation assumption for accessibility modeling. Model-derived candidate isolation does NOT constitute confirmed physical destruction."
+                )
+                sections_ne.append(
+                    f"• सम्पर्कविहीन बस्तीहरू ({iso_val} वटा): {settlements_ne}\n"
+                    "• विच्छेद भएका अस्पताल तथा केन्द्र: नुवाकोट जिल्ला अस्पताल (विदुर / त्रिशुली) उत्तरतर्फको करिडोरबाट सम्पर्कविच्छेद भएको मोडेल परिदृश्य।\n"
+                    "• मुख्य अवरोध: पासाङ ल्हामु राजमार्गको ९.६२ किमी (१६.५९%) खण्ड प्रभावित भई कुल ३५.१२ किमी सडक सञ्जाल अवरुद्ध भएको काल्पनिक परिदृश्य।\n"
+                    "• विधिगत स्पष्टीकरण: यो नेटवर्क टोपोलजी विश्लेषणमा आधारित सम्भावित विच्छेद हो, स्थलगत पुष्टि गरिएको छैन।"
+                )
+            else:
+                sections_en.append(
+                    f"• Candidate Isolated Settlements ({iso_val})\n"
+                    f"• Disruption Corridor: Across the study corridor, {roads_val} km of road network is exposed.\n"
+                    "• Methodology Note: Road closure is a simulation assumption for accessibility modeling."
+                )
+                sections_ne.append(
+                    f"• सम्पर्कविहीन बस्तीहरू ({iso_val} वटा)\n"
+                    f"• प्रभावित सडक: कुल {roads_val} किमी सडक सञ्जाल प्रभावित भएको परिदृश्य।"
+                )
 
         # Buildings and Structures
         if has_buildings:

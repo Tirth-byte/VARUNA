@@ -97,6 +97,59 @@ class CDSEDownloader:
             raise DownloadFailedError(f"CDSE token request failed: {e}") from e
         except Exception as e:
             raise DownloadFailedError(f"Could not connect to CDSE identity service: {e}") from e
+    def verify_credentials_securely(self) -> Dict[str, Any]:
+        """Verify local Copernicus credentials against Keycloak without exposing secrets.
+
+        Under NO circumstance are raw passwords, client secrets, or access tokens
+        logged, stored in returns, or printed.
+        """
+        if not self.has_credentials():
+            return {
+                "configured": False,
+                "authenticated": False,
+                "status": "NOT_CONFIGURED",
+                "identity_masked": "NONE",
+                "message": "Copernicus credentials are not configured in environment (CDSE_USERNAME / CDSE_PASSWORD missing).",
+            }
+
+        if self.username:
+            parts = self.username.split("@")
+            if len(parts) == 2:
+                user_part, domain_part = parts
+                masked_user = (user_part[:2] + "***") if len(user_part) >= 2 else "***"
+                identity_masked = f"{masked_user}@{domain_part}"
+            else:
+                identity_masked = (self.username[:2] + "***") if len(self.username) >= 2 else "***"
+        elif self.client_id:
+            identity_masked = f"client:{self.client_id}"
+        else:
+            identity_masked = "configured"
+
+        try:
+            self.acquire_token()
+            return {
+                "configured": True,
+                "authenticated": True,
+                "status": "AUTHENTICATED",
+                "identity_masked": identity_masked,
+                "message": "Copernicus Keycloak OAuth2 token successfully acquired.",
+            }
+        except AuthenticationRequiredError as e:
+            return {
+                "configured": True,
+                "authenticated": False,
+                "status": "UNAUTHORIZED",
+                "identity_masked": identity_masked,
+                "message": f"Copernicus Keycloak authentication rejected: {e}",
+            }
+        except Exception as e:
+            return {
+                "configured": True,
+                "authenticated": False,
+                "status": "CONNECTION_ERROR",
+                "identity_masked": identity_masked,
+                "message": f"Could not reach Copernicus identity service: {e}",
+            }
 
     def download_product(
         self,
@@ -115,21 +168,53 @@ class CDSEDownloader:
         filename = f"{product_name or cdse_id}.zip"
         dest_path = output_dir / filename
 
-        # If already fully downloaded and non-empty, return path
+        # If already fully downloaded and non-empty in output_dir, return path
         if dest_path.exists() and dest_path.stat().st_size > 1024:
             logger.info(f"Using already downloaded scene: {dest_path}")
             return dest_path
 
-        download_url = f"https://catalogue.dataspace.copernicus.eu/odata/v1/Products({cdse_id})/$value"
+        # Check repository storage for existing download of this product (e.g. from previous jobs)
+        search_roots = [
+            output_dir.parent.parent,
+            Path(os.getenv("VARUNA_DATA_DIR", "./data")).resolve(),
+            Path(os.getenv("VARUNA_CACHE_DIR", "./cache")).resolve(),
+        ]
+        target_patterns = [filename, f"{cdse_id}.zip"]
+        if product_name:
+            target_patterns.append(f"{product_name}.zip")
+
+        for sroot in search_roots:
+            if sroot.exists():
+                for pat in target_patterns:
+                    for found in sroot.rglob(pat):
+                        if found.is_file() and found.stat().st_size > 1024 * 1024 and found.resolve() != dest_path.resolve():
+                            logger.info(f"Reusing already downloaded scene from repository storage: {found}")
+                            try:
+                                if not dest_path.exists():
+                                    dest_path.symlink_to(found.resolve())
+                                return dest_path
+                            except Exception:
+                                return found
+
+        download_url = f"https://download.dataspace.copernicus.eu/odata/v1/Products({cdse_id})/$value"
         headers = {"Authorization": f"Bearer {token}"}
 
         try:
-            with httpx.Client(timeout=300.0, follow_redirects=True) as client:
+            with httpx.Client(timeout=600.0, follow_redirects=False) as client:
                 with client.stream("GET", download_url, headers=headers) as stream_resp:
-                    stream_resp.raise_for_status()
-                    with open(dest_path, "wb") as f:
-                        for chunk in stream_resp.iter_bytes(chunk_size=65536):
-                            f.write(chunk)
+                    if stream_resp.status_code in (301, 302, 303, 307):
+                        target_url = stream_resp.headers.get("location", download_url)
+                        logger.info(f"Following Copernicus download redirect to {target_url}")
+                        with client.stream("GET", target_url, headers=headers) as red_resp:
+                            red_resp.raise_for_status()
+                            with open(dest_path, "wb") as f:
+                                for chunk in red_resp.iter_bytes(chunk_size=65536):
+                                    f.write(chunk)
+                    else:
+                        stream_resp.raise_for_status()
+                        with open(dest_path, "wb") as f:
+                            for chunk in stream_resp.iter_bytes(chunk_size=65536):
+                                f.write(chunk)
             
             if not dest_path.exists() or dest_path.stat().st_size == 0:
                 dest_path.unlink(missing_ok=True)

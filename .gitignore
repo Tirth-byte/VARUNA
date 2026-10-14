@@ -41,6 +41,10 @@ htmlcov/
 .env
 .env.local
 
+# Unrelated documents and temporary files
+*.docx
+IPE-PAPER-HW-2.docx
+
 # OS generated files
 .DS_Store
 .DS_Store?

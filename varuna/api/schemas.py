@@ -146,3 +146,39 @@ class HealthResponse(BaseModel):
     library_versions: Dict[str, str]
     cdse_credentials_configured: bool
     scientific_integrity_mode: str
+
+
+class CopilotQueryRequest(BaseModel):
+    query: str = Field(..., description="Natural language question in English or Nepali")
+    language: str = Field("auto", description="'en', 'ne', or 'auto'")
+    job_id: Optional[str] = Field(None, description="Optional job ID to ground on specific job outputs")
+
+
+class CopilotQueryResponseModel(BaseModel):
+    query: str
+    language: str
+    answer: str
+    grounded: bool
+    grounding_facts_used: List[str]
+    unsupported_topic_flag: bool
+    refusal_reason: Optional[str] = None
+    sources: List[str]
+    timestamp: str
+
+
+class CopilotReportRequest(BaseModel):
+    language: str = Field("en", description="'en' or 'ne'")
+    job_id: Optional[str] = Field(None, description="Optional job ID to ground on specific job outputs")
+
+
+class CopilotReportResponseModel(BaseModel):
+    language: str
+    title: str
+    timestamp: str
+    executive_summary: str
+    hazard_extents: Dict[str, Any]
+    infrastructure_exposure: Dict[str, Any]
+    isolated_settlements: List[str]
+    critical_hubs_impact: Dict[str, Any]
+    disclosures_and_limitations: List[str]
+    raw_markdown: str

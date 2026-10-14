@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <rect width="32" height="32" rx="7" fill="#176B52"/>
+  <!-- Converging SAR beam / Hydrographic wavefront V-vector -->
+  <path d="M7 9.5C10.8 14 12.8 18.2 16 24.5C19.2 18.2 21.2 14 25 9.5" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M10.5 8.5C13.2 12.2 14.5 15.5 16 19.5C17.5 15.5 18.8 12.2 21.5 8.5" stroke="rgba(255, 255, 255, 0.65)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Satellite sensor nadir pulse -->
+  <circle cx="16" cy="6" r="1.6" fill="#A7F3D0"/>
+</svg>

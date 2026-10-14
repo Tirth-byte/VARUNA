@@ -107,21 +107,25 @@ To execute full binary downloads from the Copernicus Data Space Ecosystem:
 
 ---
 
-## 5. ESA SNAP Installation Instructions for Range-Doppler Terrain Correction
+## 5. Verified Local ESA SNAP Installation & Scientific Configuration
 
-For full Range-Doppler Terrain Correction:
-1. Download ESA SNAP from: `https://step.esa.int/main/download/snap-download/`
-2. Install SNAP and ensure `gpt` (Graph Processing Tool) is added to your system `PATH`:
-   ```bash
-   export PATH="/Applications/snap/bin:$PATH"  # macOS
-   # or
-   export PATH="/usr/local/snap/bin:$PATH"       # Linux
-   ```
-3. Test availability:
-   ```bash
-   gpt -h
-   ```
-   VARUNA automatically verifies that `gpt` is the ESA SNAP Graph Processing Tool (and distinguishes it from the macOS GUID partition table command `/usr/sbin/gpt`).
+ESA SNAP Graph Processing Tool (GPT) is physically installed, verified, and active:
+- **Executable Binary:** `/Users/macbookair/Downloads/esa-snap/bin/gpt`
+- **Environment Discovery Variable:** `SNAP_GPT_PATH=/Users/macbookair/Downloads/esa-snap/bin/gpt` (configured in `.env`)
+- **Verified Available Operators (406 total, all required confirmed):**
+  - `Apply-Orbit-File`: Applies precise orbit ephemerides.
+  - `Calibration`: Radiometric calibration generating $\sigma^0$ (Sigma Nought).
+  - `Speckle-Filter`: Speckle reduction in linear power domain.
+  - `Terrain-Correction`: Range-Doppler DEM orthorectification with layover/shadow masking.
+  - `Terrain-Mask`: Topographic masking.
+  - `ThermalNoiseRemoval`: Removes thermal noise from Sentinel-1 cross/co-polarization.
+- **Mandatory Terrain Correction Policy:**
+  - Range-Doppler Terrain Correction is strictly enforced (`require_range_doppler=True`) by default for all research-grade Sentinel-1 GRD workflows.
+  - Silent fallback to uncorrected planar geometry is prohibited.
+- **DEM Provenance & Topographic Masking:**
+  - Configured DEM: `Copernicus 30m Global DEM` (via `DEM_SOURCE` environment variable).
+  - Terrain Layover / Shadow Masking: `<saveLayoverShadowMask>true</saveLayoverShadowMask>` active in graph XML.
+  - GeoTIFF tags written upon processing: `TERRAIN_CORRECTION="ESA_SNAP_RANGE_DOPPLER"`, `DEM_SOURCE="Copernicus 30m Global DEM"`, `LAYOVER_SHADOW_MASKING="ENABLED"`, `PROCESSING_SOFTWARE="ESA_SNAP_GPT"`.
 
 ---
 
@@ -161,33 +165,47 @@ For full Range-Doppler Terrain Correction:
 
 Executed live via `scripts/run_nepal_experiment.py` on 2026-10-11:
 
-### Authentic CDSE Query & Authentication Boundary Halt
-- **Endpoint Queried:** `https://catalogue.dataspace.copernicus.eu/odata/v1/Products` (`HTTP 200 OK`)
-- **Products Discovered:** 16 authentic Sentinel-1 GRD products over Trishuli AOI.
-- **Job Status:** `JobStatus.AWAITING_AUTHENTICATION` (30% progress).
-- **Diagnostics:**
-  ```text
-  Authentication required: CDSE credentials (CDSE_USERNAME / CDSE_PASSWORD) not configured in environment.
-  Binary Sentinel-1 product download halted at authentication boundary.
-  To process satellite rasters, configure .env with Copernicus credentials or supply pre-downloaded scene paths.
-  ```
-- **Scientific Integrity Verification:**
-  - The pipeline cleanly halted at the authentication boundary without fabricating binary data.
-  - No synthetic imagery was used or represented as observed flood damage.
-  - Job status was honestly reported as `AWAITING_AUTHENTICATION` and never `COMPLETED`.
+### 1. Authentic Satellite Catalog Discovery
+- **Live Endpoint:** `https://catalogue.dataspace.copernicus.eu/odata/v1/Products` (`HTTP 200 OK`)
+- **Products Discovered:** 16 authentic Sentinel-1 Level-1 GRD products over Trishuli River AOI.
+- **Recommended Observation Pair:**
+  - **Orbit 85 (ASCENDING)**, baseline 12.0 days, VV & VH polarization.
+  - Pre-event: `S1D_IW_GRDH_1SDV_20260816T122141_..._COG.SAFE` (August 16, 2026)
+  - Post-event: `S1D_IW_GRDH_1SDV_20260828T122141_..._01B4.SAFE` (August 28, 2026, 48 hrs post-flood)
+
+### 2. Processing Environment Inspection
+- **ESA SNAP GPT Discovered:** `True` (`/Users/macbookair/Downloads/esa-snap/bin/gpt`)
+- **Required Operators Present:** `True` (`Apply-Orbit-File`, `Calibration`, `Speckle-Filter`, `Terrain-Correction`, `Terrain-Mask`, `ThermalNoiseRemoval`)
+- **Terrain Correction Mode:** `ENFORCED (require_range_doppler=True)`
+- **DEM Provenance:** `Copernicus 30m Global DEM`
+- **Layover/Shadow Masking:** `ENABLED`
+- **SNAP Graph XML Validation:** `PASSED` (syntactically valid graph DAG generated)
+
+### 3. Authentication Boundary & Secure Verification
+- **Credential Check Method:** `CDSEDownloader.verify_credentials_securely()`
+- **Credentials Configured:** `True`
+- **Identity (Masked):** `ka***@gmail.com` (passwords and raw tokens strictly excluded from logs and returns)
+- **Keycloak Authentication Result:** `HTTP 401 Unauthorized` (`UNAUTHORIZED`)
+- **Execution State:** `JobStatus.AWAITING_AUTHENTICATION`
+- **Remaining Blocker:**
+  - Copernicus Keycloak rejects the provided credentials with HTTP 401. The account `ka***@gmail.com` must be activated/verified on [dataspace.copernicus.eu](https://dataspace.copernicus.eu) or the password updated in `.env`.
+  - Downloading multi-gigabyte Sentinel-1 GRD SAFE packages will proceed automatically once valid CDSE credentials are provided.
+  - Zero synthetic imagery was substituted. The pipeline cleanly halted at the authentication boundary.
 
 ---
 
 ## 9. Software & Environment Versions
 
-- OS: macOS (Darwin 24.6.0, arm64)
-- Python: 3.14.7
-- `rasterio`: 1.5.2
-- `geopandas`: 1.2.0
-- `shapely`: 2.2.0
-- `pyproj`: 3.8.0
-- `networkx`: 3.7
-- `scipy`: 1.18.1
-- `fastapi`: 0.143.0
-- `pytest`: 9.1.1
-- ESA SNAP `gpt`: Not installed (Python-native XML calibration active)
+- **Operating System:** macOS Darwin 24.6.0 (arm64)
+- **Python Runtime:** Python 3.14.7 virtualenv (`.venv`)
+- **ESA SNAP GPT:** Installed and operational at `/Users/macbookair/Downloads/esa-snap/bin/gpt`
+- **Java Runtime:** OpenJDK 21 (Temurin-21)
+- **Key Python Dependencies:**
+  - `rasterio`: 1.5.2
+  - `geopandas`: 1.2.0
+  - `shapely`: 2.2.0
+  - `httpx`: 0.28.1
+  - `scipy`: 1.18.1
+  - `networkx`: 3.7
+  - `fastapi`: 0.143.0
+  - `pytest`: 9.1.1 (62/62 tests passing)

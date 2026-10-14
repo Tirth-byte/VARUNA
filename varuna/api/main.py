@@ -60,6 +60,15 @@ from varuna.api.schemas import (
     ValidationBenchmarkRequest,
     ValidationBenchmarkResponse,
     HealthResponse,
+    CopilotQueryRequest,
+    CopilotQueryResponseModel,
+    CopilotReportRequest,
+    CopilotReportResponseModel,
+)
+from varuna.copilot.engine import (
+    SituationReportCopilot,
+    FactBase,
+    Language,
 )
 
 app = FastAPI(
@@ -371,3 +380,67 @@ def run_validation_benchmark(req: ValidationBenchmarkRequest) -> ValidationBench
         methodological_notes=report.methodological_notes,
         limitations=report.limitations,
     )
+
+
+copilot_instance = SituationReportCopilot()
+
+
+@app.post("/api/v1/copilot/query", response_model=CopilotQueryResponseModel)
+def query_copilot(req: CopilotQueryRequest) -> CopilotQueryResponseModel:
+    """Answer rescuer operations queries in English or Nepali with strict numeric grounding."""
+    # Check if a specific job fact base is requested
+    if req.job_id:
+        job = pipeline_manager.get_job(req.job_id)
+        if job and job.summary_results:
+            fb = FactBase.from_job_summary(job.summary_results)
+            active_copilot = SituationReportCopilot(fact_base=fb)
+        else:
+            active_copilot = copilot_instance
+    else:
+        active_copilot = copilot_instance
+
+    lang = Language(req.language) if req.language in ["en", "ne", "auto"] else Language.AUTO
+    resp = active_copilot.answer_query(req.query, language=lang)
+
+    return CopilotQueryResponseModel(
+        query=resp.query,
+        language=resp.language,
+        answer=resp.answer,
+        grounded=resp.grounded,
+        grounding_facts_used=resp.grounding_facts_used,
+        unsupported_topic_flag=resp.unsupported_topic_flag,
+        refusal_reason=resp.refusal_reason,
+        sources=resp.sources,
+        timestamp=resp.timestamp,
+    )
+
+
+@app.post("/api/v1/copilot/report", response_model=CopilotReportResponseModel)
+def generate_copilot_report(req: CopilotReportRequest) -> CopilotReportResponseModel:
+    """Generate a structured, evidence-grounded Situation Briefing in English or Nepali."""
+    if req.job_id:
+        job = pipeline_manager.get_job(req.job_id)
+        if job and job.summary_results:
+            fb = FactBase.from_job_summary(job.summary_results)
+            active_copilot = SituationReportCopilot(fact_base=fb)
+        else:
+            active_copilot = copilot_instance
+    else:
+        active_copilot = copilot_instance
+
+    lang = Language.NEPALI if req.language == "ne" else Language.ENGLISH
+    briefing = active_copilot.generate_situation_briefing(language=lang)
+
+    return CopilotReportResponseModel(
+        language=briefing.language,
+        title=briefing.title,
+        timestamp=briefing.timestamp,
+        executive_summary=briefing.executive_summary,
+        hazard_extents=briefing.hazard_extents,
+        infrastructure_exposure=briefing.infrastructure_exposure,
+        isolated_settlements=briefing.isolated_settlements,
+        critical_hubs_impact=briefing.critical_hubs_impact,
+        disclosures_and_limitations=briefing.disclosures_and_limitations,
+        raw_markdown=briefing.raw_markdown,
+    )
+

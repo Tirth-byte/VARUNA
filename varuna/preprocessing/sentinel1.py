@@ -217,7 +217,7 @@ class Sentinel1ProductInspector:
                 elif "-vh-" in fname_lower:
                     noise_files["VH"] = f
 
-        # Parse orbit and mode strictly from main annotation XML - no fallbacks permitted
+        # Parse orbit and mode strictly from manifest.safe (authoritative SAFE envelope) and annotation XML
         ann_xmls = list((safe_dir / "annotation").glob("s1*.xml"))
         if not ann_xmls:
             raise CorruptSAFEProductError(f"Missing annotation XML in {safe_dir / 'annotation'}. Invented defaults are prohibited.")
@@ -228,43 +228,114 @@ class Sentinel1ProductInspector:
         except ET.ParseError as e:
             raise CorruptSAFEProductError(f"Malformed annotation XML '{ann_xmls[0].name}': {e}") from e
 
+        # 1. Sensor Mode
         mode_elem = ann_root.find(".//mode")
-        if mode_elem is None or not mode_elem.text or not mode_elem.text.strip():
-            raise CorruptSAFEProductError(f"Annotation XML '{ann_xmls[0].name}' lacks required <mode> tag")
-        sensor_mode = mode_elem.text.strip()
+        if mode_elem is not None and mode_elem.text and mode_elem.text.strip():
+            sensor_mode = mode_elem.text.strip()
+        else:
+            sensor_mode = None
+            for elem in root.iter():
+                tag_local = elem.tag.split("}")[-1]
+                if tag_local in ("mode", "operationalMode") and elem.text and elem.text.strip():
+                    sensor_mode = elem.text.strip()
+                    break
 
+        if not sensor_mode:
+            raise CorruptSAFEProductError(f"Sentinel-1 product '{prod_name}' lacks required <mode> tag")
+
+        # 2. Product Type
         ptype_elem = ann_root.find(".//productType")
-        if ptype_elem is None or not ptype_elem.text or not ptype_elem.text.strip():
-            raise CorruptSAFEProductError(f"Annotation XML '{ann_xmls[0].name}' lacks required <productType> tag")
-        product_type = ptype_elem.text.strip()
+        if ptype_elem is not None and ptype_elem.text and ptype_elem.text.strip():
+            product_type = ptype_elem.text.strip()
+        else:
+            product_type = None
+            for elem in root.iter():
+                tag_local = elem.tag.split("}")[-1]
+                if tag_local in ("productType", "productClassDescription") and elem.text and elem.text.strip():
+                    product_type = elem.text.strip()
+                    break
 
+        if not product_type:
+            raise CorruptSAFEProductError(f"Sentinel-1 product '{prod_name}' lacks required <productType> tag")
+
+        # 3. Orbit Pass Direction
+        orbit_dir = None
         pass_elem = ann_root.find(".//pass")
-        if pass_elem is None or not pass_elem.text or not pass_elem.text.strip():
-            raise CorruptSAFEProductError(f"Annotation XML '{ann_xmls[0].name}' lacks required <pass> tag (orbit pass direction)")
-        orbit_dir = pass_elem.text.strip().upper()
-        if orbit_dir not in ("ASCENDING", "DESCENDING"):
-            raise CorruptSAFEProductError(f"Invalid orbit pass direction '{orbit_dir}' in annotation XML (must be ASCENDING or DESCENDING)")
+        if pass_elem is not None and pass_elem.text and pass_elem.text.strip():
+            orbit_dir = pass_elem.text.strip().upper()
+        else:
+            for elem in root.iter():
+                tag_local = elem.tag.split("}")[-1]
+                if tag_local == "pass" and elem.text and elem.text.strip():
+                    orbit_dir = elem.text.strip().upper()
+                    break
 
-        rel_elem = ann_root.find(".//relativeOrbitNumber")
-        if rel_elem is None or not rel_elem.text or not rel_elem.text.strip():
-            raise CorruptSAFEProductError(f"Annotation XML '{ann_xmls[0].name}' lacks required <relativeOrbitNumber> tag")
-        try:
-            rel_orbit = int(rel_elem.text.strip())
-        except ValueError:
-            raise CorruptSAFEProductError(f"Invalid relativeOrbitNumber '{rel_elem.text}' in annotation XML")
+        if not orbit_dir or orbit_dir not in ("ASCENDING", "DESCENDING"):
+            raise CorruptSAFEProductError(
+                f"Sentinel-1 product '{prod_name}' lacks required <pass> tag (orbit pass direction must be ASCENDING or DESCENDING)"
+            )
 
+        # 4. Relative Orbit Number (Authoritative from manifest.safe, with fallback to annotation XML)
+        rel_orbit = None
+        for elem in root.iter():
+            tag_local = elem.tag.split("}")[-1]
+            if tag_local == "relativeOrbitNumber" and elem.text and elem.text.strip():
+                try:
+                    val = int(elem.text.strip())
+                    if elem.attrib.get("type") == "start" or rel_orbit is None:
+                        rel_orbit = val
+                except ValueError:
+                    pass
+
+        if rel_orbit is None:
+            rel_elem = ann_root.find(".//relativeOrbitNumber")
+            if rel_elem is not None and rel_elem.text and rel_elem.text.strip():
+                try:
+                    rel_orbit = int(rel_elem.text.strip())
+                except ValueError:
+                    pass
+
+        if rel_orbit is None:
+            raise CorruptSAFEProductError(
+                f"Sentinel-1 product '{prod_name}' lacks required <relativeOrbitNumber> tag in manifest.safe and annotation XML. "
+                "Invented defaults are strictly prohibited."
+            )
+
+        # 5. Absolute Orbit Number
+        abs_orbit = 0
         abs_elem = ann_root.find(".//absoluteOrbitNumber")
-        abs_orbit = int(abs_elem.text.strip()) if (abs_elem is not None and abs_elem.text and abs_elem.text.strip().isdigit()) else 0
+        if abs_elem is not None and abs_elem.text and abs_elem.text.strip().isdigit():
+            abs_orbit = int(abs_elem.text.strip())
+        else:
+            for elem in root.iter():
+                tag_local = elem.tag.split("}")[-1]
+                if tag_local in ("orbitNumber", "absoluteOrbitNumber") and elem.text and elem.text.strip():
+                    if elem.text.strip().isdigit():
+                        abs_orbit = int(elem.text.strip())
+                        if elem.attrib.get("type") == "start":
+                            break
 
+        # 6. Start and Stop Acquisition Times
         start_elem = ann_root.find(".//startTime")
-        if start_elem is None or not start_elem.text or not start_elem.text.strip():
-            raise CorruptSAFEProductError(f"Annotation XML '{ann_xmls[0].name}' lacks required <startTime> tag")
-        start_time = start_elem.text.strip()
+        start_time = start_elem.text.strip() if (start_elem is not None and start_elem.text and start_elem.text.strip()) else None
+        if not start_time:
+            for elem in root.iter():
+                tag_local = elem.tag.split("}")[-1]
+                if tag_local == "startTime" and elem.text and elem.text.strip():
+                    start_time = elem.text.strip()
+                    break
 
         stop_elem = ann_root.find(".//stopTime")
-        if stop_elem is None or not stop_elem.text or not stop_elem.text.strip():
-            raise CorruptSAFEProductError(f"Annotation XML '{ann_xmls[0].name}' lacks required <stopTime> tag")
-        stop_time = stop_elem.text.strip()
+        stop_time = stop_elem.text.strip() if (stop_elem is not None and stop_elem.text and stop_elem.text.strip()) else None
+        if not stop_time:
+            for elem in root.iter():
+                tag_local = elem.tag.split("}")[-1]
+                if tag_local == "stopTime" and elem.text and elem.text.strip():
+                    stop_time = elem.text.strip()
+                    break
+
+        if not start_time or not stop_time:
+            raise CorruptSAFEProductError(f"Sentinel-1 product '{prod_name}' lacks required startTime/stopTime metadata")
 
         pols = list(meas_files.keys())
 
@@ -403,34 +474,165 @@ class SNAPGraphProcessor:
     """Interface to ESA SNAP Graph Processing Tool (GPT) if installed on host system."""
 
     @classmethod
-    def is_snap_available(cls) -> bool:
-        """Check if ESA SNAP `gpt` executable is available in PATH."""
-        gpt_path = shutil.which("gpt")
-        if not gpt_path:
-            return False
-        # On macOS, /usr/sbin/gpt is the GUID Partition Table utility! Ensure it's ESA SNAP.
-        try:
-            res = subprocess.run([gpt_path, "-h"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            return "Graph Processing Tool" in res.stdout or "SNAP" in res.stdout or "SNAP" in res.stderr
-        except Exception:
-            return False
+    def get_gpt_path(cls) -> Optional[Path]:
+        """Discover and validate the ESA SNAP GPT executable path.
+
+        Resolution Priority:
+        1. Environment variable `SNAP_GPT_PATH` (e.g. from `.env` or system environment).
+        2. Known installation locations (e.g. `/Users/macbookair/Downloads/esa-snap/bin/gpt`).
+        3. PATH lookup via `shutil.which('gpt')`, rigorously ensuring it is ESA SNAP and
+           not the macOS partition table utility (`/usr/sbin/gpt`).
+        """
+        candidates: List[Path] = []
+        env_val = os.getenv("SNAP_GPT_PATH")
+        if env_val:
+            candidates.append(Path(env_val).expanduser().resolve())
+
+        # Known common installation paths
+        common_paths = [
+            Path("/Users/macbookair/Downloads/esa-snap/bin/gpt"),
+            Path("/Applications/snap/bin/gpt"),
+            Path.home() / "Downloads" / "esa-snap" / "bin" / "gpt",
+            Path.home() / "snap" / "bin" / "gpt",
+            Path("/usr/local/snap/bin/gpt"),
+            Path("/opt/snap/bin/gpt"),
+        ]
+        for cp in common_paths:
+            if cp not in candidates:
+                candidates.append(cp)
+
+        # Check system PATH
+        which_gpt = shutil.which("gpt")
+        if which_gpt:
+            p_which = Path(which_gpt).resolve()
+            # Explicitly reject macOS GUID partition table tool (/usr/sbin/gpt)
+            if p_which != Path("/usr/sbin/gpt") and p_which not in candidates:
+                candidates.append(p_which)
+
+        for candidate in candidates:
+            if candidate.exists() and os.access(candidate, os.X_OK):
+                try:
+                    res = subprocess.run(
+                        [str(candidate), "-h"],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        timeout=8,
+                    )
+                    out = res.stdout + res.stderr
+                    if "Graph Processing Tool" in out or "SNAP" in out or "org.esa.snap" in out:
+                        return candidate
+                except Exception as e:
+                    logger.debug(f"Candidate {candidate} validation check failed: {e}")
+
+        return None
+
+    REQUIRED_OPERATORS: Tuple[str, ...] = (
+        "Apply-Orbit-File",
+        "Calibration",
+        "Speckle-Filter",
+        "Terrain-Correction",
+        "Terrain-Mask",
+        "ThermalNoiseRemoval",
+    )
 
     @classmethod
-    def execute_snap_calibration_pipeline(
+    def is_snap_available(cls) -> bool:
+        """Check if a verified ESA SNAP `gpt` executable is available."""
+        return cls.get_gpt_path() is not None
+
+    @classmethod
+    def get_available_operators(cls, gpt_path: Optional[Path] = None) -> Set[str]:
+        """Query ESA SNAP GPT and return the set of available operators."""
+        executable = gpt_path or cls.get_gpt_path()
+        if not executable:
+            return set()
+
+        try:
+            import re
+            res = subprocess.run(
+                [str(executable), "-h"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=12,
+            )
+            out = res.stdout + res.stderr
+            ops = set()
+            for line in out.splitlines():
+                m = re.match(r"^\s{2}([A-Za-z0-9\-_]+)\s{2,}", line)
+                if m:
+                    ops.add(m.group(1))
+            return ops
+        except Exception as e:
+            logger.warning(f"Failed to query operators from ESA SNAP: {e}")
+            return set()
+
+    @classmethod
+    def validate_installation(cls) -> Dict[str, Any]:
+        """Validate ESA SNAP GPT installation and confirm required operators."""
+        gpt_path = cls.get_gpt_path()
+        dem_src = os.getenv("DEM_SOURCE", "Copernicus 30m Global DEM")
+        if not gpt_path:
+            return {
+                "discovered": False,
+                "gpt_path": None,
+                "valid": False,
+                "required_operators": list(cls.REQUIRED_OPERATORS),
+                "available_operators": [],
+                "missing_operators": list(cls.REQUIRED_OPERATORS),
+                "dem_source": dem_src,
+                "layover_shadow_mask_enabled": True,
+            }
+
+        available = cls.get_available_operators(gpt_path)
+        missing = [op for op in cls.REQUIRED_OPERATORS if op not in available]
+        return {
+            "discovered": True,
+            "gpt_path": str(gpt_path),
+            "valid": len(missing) == 0,
+            "required_operators": list(cls.REQUIRED_OPERATORS),
+            "available_operators": sorted(list(available)),
+            "missing_operators": missing,
+            "dem_source": dem_src,
+            "layover_shadow_mask_enabled": True,
+        }
+
+    @classmethod
+    def build_graph_xml(
         cls,
         safe_path: Path,
         output_geotiff_path: Path,
         polarization: str = "VV",
         target_crs: str = "EPSG:4326",
-        dem_source: str = "SRTM 3Sec",
+        dem_source: str = "Copernicus 30m Global DEM",
         pixel_spacing_m: float = 10.0,
-    ) -> Path:
-        """Run SNAP GPT graph for Apply-Orbit-File -> ThermalNoiseRemoval -> Calibration -> Terrain-Correction."""
-        if not cls.is_snap_available():
-            raise SNAPExecutionError("ESA SNAP `gpt` is not installed on this system.")
+        enable_layover_shadow_mask: bool = True,
+        aoi_wkt: Optional[str] = None,
+    ) -> str:
+        """Construct the SNAP GPT processing graph XML."""
+        dem_source_final = dem_source or os.getenv("DEM_SOURCE", "Copernicus 30m Global DEM")
+        layover_mask_str = "true" if enable_layover_shadow_mask else "false"
+        crs_proj = "WGS84(DD)" if target_crs in ["EPSG:4326", "WGS84", "WGS84(DD)"] else target_crs
+        pixel_spacing_deg = pixel_spacing_m / 111320.0
 
-        gpt_bin = shutil.which("gpt")
-        graph_xml = f"""<graph id="S1_GRD_Preprocessing">
+        subset_node = ""
+        write_source_id = "Terrain-Correction"
+        if aoi_wkt:
+            write_source_id = "Subset"
+            subset_node = f"""  <node id="Subset">
+    <operator>Subset</operator>
+    <sources>
+      <sourceProduct refid="Terrain-Correction"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <geoRegion>{aoi_wkt}</geoRegion>
+      <copyMetadata>true</copyMetadata>
+    </parameters>
+  </node>
+"""
+
+        return f"""<graph id="S1_GRD_Preprocessing">
   <version>1.0</version>
   <node id="Read">
     <operator>Read</operator>
@@ -447,7 +649,7 @@ class SNAPGraphProcessor:
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <orbitType>Sentinel Precise (Auto Download)</orbitType>
       <polyDegree>3</polyDegree>
-      <continueOnFail>true</continueOnFail>
+      <continueOnFail>false</continueOnFail>
     </parameters>
   </node>
   <node id="ThermalNoiseRemoval">
@@ -467,7 +669,7 @@ class SNAPGraphProcessor:
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <sourceBands/>
-      <auxFile>Product Auxiliary</auxFile>
+      <auxFile>Product Auxiliary File</auxFile>
       <externalAuxFile/>
       <outputImageInComplex>false</outputImageInComplex>
       <outputImageScaleInDb>false</outputImageScaleInDb>
@@ -486,17 +688,19 @@ class SNAPGraphProcessor:
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <sourceBands/>
-      <demName>{dem_source}</demName>
+      <demName>{dem_source_final}</demName>
       <externalDEMFile/>
       <externalDEMNoDataValue>0.0</externalDEMNoDataValue>
       <externalDEMApplyEGM>true</externalDEMApplyEGM>
       <demResamplingMethod>BILINEAR_INTERPOLATION</demResamplingMethod>
       <imgResamplingMethod>BILINEAR_INTERPOLATION</imgResamplingMethod>
       <pixelSpacingInMeter>{pixel_spacing_m}</pixelSpacingInMeter>
-      <mapProjection>{target_crs}</mapProjection>
+      <pixelSpacingInDegree>{pixel_spacing_deg:.8f}</pixelSpacingInDegree>
+      <mapProjection>{crs_proj}</mapProjection>
       <alignToStandardGrid>false</alignToStandardGrid>
       <standardGridOriginX>0.0</standardGridOriginX>
       <nodataValueAtSea>false</nodataValueAtSea>
+      <saveLayoverShadowMask>{layover_mask_str}</saveLayoverShadowMask>
       <saveDEM>false</saveDEM>
       <saveLatLon>false</saveLatLon>
       <saveIncidenceAngleFromEllipsoid>false</saveIncidenceAngleFromEllipsoid>
@@ -514,25 +718,104 @@ class SNAPGraphProcessor:
       <externalAuxFile/>
     </parameters>
   </node>
-  <node id="Write">
+{subset_node}  <node id="Write">
     <operator>Write</operator>
     <sources>
-      <sourceProduct refid="Terrain-Correction"/>
+      <sourceProduct refid="{write_source_id}"/>
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <file>{output_geotiff_path}</file>
-      <formatName>GeoTIFF</formatName>
+      <formatName>GeoTIFF-BigTIFF</formatName>
     </parameters>
   </node>
 </graph>
 """
+
+    @classmethod
+    def execute_snap_calibration_pipeline(
+        cls,
+        safe_path: Path,
+        output_geotiff_path: Path,
+        polarization: str = "VV",
+        target_crs: str = "EPSG:4326",
+        dem_source: str = "Copernicus 30m Global DEM",
+        pixel_spacing_m: float = 10.0,
+        enable_layover_shadow_mask: bool = True,
+        aoi_wkt: Optional[str] = None,
+    ) -> Path:
+        """Run SNAP GPT graph for Apply-Orbit-File -> ThermalNoiseRemoval -> Calibration -> Terrain-Correction."""
+        gpt_bin = cls.get_gpt_path()
+        if not gpt_bin:
+            raise SNAPExecutionError("ESA SNAP `gpt` executable is not discovered or valid on this system.")
+
+        dem_source_final = dem_source or os.getenv("DEM_SOURCE", "Copernicus 30m Global DEM")
+        graph_xml = cls.build_graph_xml(
+            safe_path=safe_path,
+            output_geotiff_path=output_geotiff_path,
+            polarization=polarization,
+            target_crs=target_crs,
+            dem_source=dem_source_final,
+            pixel_spacing_m=pixel_spacing_m,
+            enable_layover_shadow_mask=enable_layover_shadow_mask,
+            aoi_wkt=aoi_wkt,
+        )
+
         graph_file = output_geotiff_path.parent / "snap_graph.xml"
         graph_file.write_text(graph_xml)
 
-        cmd = [gpt_bin, str(graph_file)]
+        cmd = [str(gpt_bin), str(graph_file)]
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if res.returncode != 0:
-            raise SNAPExecutionError(f"SNAP gpt failed with exit code {res.returncode}:\n{res.stderr}")
+            raise SNAPExecutionError(f"SNAP gpt failed with exit code {res.returncode}:\n{res.stderr}\nOutput:\n{res.stdout}")
+
+        actual_out = output_geotiff_path
+        if not actual_out.exists() and actual_out.with_suffix(".tif").exists():
+            actual_out = actual_out.with_suffix(".tif")
+
+        if not actual_out.exists():
+            raise SNAPExecutionError(f"SNAP execution completed but output raster '{output_geotiff_path}' was not found.")
+
+        # Post-process SNAP linear sigma0 to decibels (dB) with compression and provenance metadata
+        tmp_converted = output_geotiff_path.parent / f"converted_{output_geotiff_path.name}"
+        with rasterio.open(actual_out) as src:
+            profile = src.profile.copy()
+            profile.update(
+                driver="GTiff",
+                dtype=rasterio.float32,
+                count=1,
+                nodata=-9999.0,
+                compress="lzw",
+            )
+            if not profile.get("tiled", False):
+                profile.pop("blockxsize", None)
+                profile.pop("blockysize", None)
+
+            with rasterio.open(tmp_converted, "w", **profile) as dst:
+                for ji, window in src.block_windows(1):
+                    block = src.read(1, window=window).astype(np.float32)
+                    valid = (block > 0) & (~np.isnan(block)) & (~np.isinf(block))
+                    db_block = np.full_like(block, -9999.0, dtype=np.float32)
+                    db_block[valid] = 10.0 * np.log10(block[valid])
+                    dst.write(db_block, 1, window=window)
+
+                dst.set_band_description(1, f"Sigma0_dB_{polarization.upper()}")
+                dst.update_tags(
+                    DATA_ORIGIN="REAL_SENTINEL1_OBSERVATION",
+                    SAR_UNIT="DECIBELS_DB",
+                    POLARIZATION=polarization.upper(),
+                    TERRAIN_CORRECTION="ESA_SNAP_RANGE_DOPPLER",
+                    RANGE_DOPPLER_APPLIED="TRUE",
+                    DEM_SOURCE=dem_source_final,
+                    LAYOVER_SHADOW_MASKING="ENABLED" if enable_layover_shadow_mask else "DISABLED",
+                    PROCESSING_SOFTWARE="ESA_SNAP_GPT",
+                    GPT_BIN_PATH=str(gpt_bin),
+                    TARGET_CRS=target_crs,
+                    RESOLUTION_METERS=str(pixel_spacing_m),
+                )
+
+        if actual_out.exists():
+            actual_out.unlink()
+        tmp_converted.rename(output_geotiff_path)
 
         return output_geotiff_path
 
@@ -548,13 +831,20 @@ class AuthenticSentinel1Processor:
         polarization: str = "VV",
         work_dir: Optional[Path] = None,
         apply_speckle_filter: bool = True,
-        require_range_doppler: bool = False,
-        dem_source: str = "SRTM 3Sec",
+        require_range_doppler: bool = True,
+        dem_source: Optional[str] = None,
+        enable_layover_shadow_mask: bool = True,
         target_crs: str = "EPSG:4326",
+        aoi_wkt: Optional[str] = None,
     ) -> Path:
-        """Transform genuine Sentinel-1 SAFE product to calibrated, speckle-filtered decibel raster."""
+        """Transform genuine Sentinel-1 SAFE product to calibrated, speckle-filtered decibel raster.
+        
+        Range-Doppler Terrain Correction via ESA SNAP is mandatory by default (require_range_doppler=True)
+        for research-grade Sentinel-1 processing in mountainous topography such as Nepal.
+        """
         output_path = Path(output_calibrated_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        dem_source_final = dem_source or os.getenv("DEM_SOURCE", "Copernicus 30m Global DEM")
 
         # Inspect SAFE product
         meta, safe_dir = Sentinel1ProductInspector.inspect(product_path, work_dir=work_dir)
@@ -573,20 +863,22 @@ class AuthenticSentinel1Processor:
             if not SNAPGraphProcessor.is_snap_available():
                 raise TerrainCorrectionUnavailableError(
                     f"Research-grade Sentinel-1 GRD processing requires Range-Doppler Terrain Correction "
-                    f"using ESA SNAP GPT with DEM '{dem_source}'. "
+                    f"using ESA SNAP GPT with DEM '{dem_source_final}'. "
                     "ESA SNAP `gpt` is not installed or available on PATH. "
                     "The Python-native calibration path performs radiometric Level-1 XML LUT calibration "
                     "and speckle filtering, but does NOT perform Range-Doppler DEM orthorectification. "
                     "Silent downgrades to less rigorous methods are strictly prohibited. "
                     "To proceed with terrain correction, install ESA SNAP and configure `gpt`."
                 )
-            logger.info(f"Executing ESA SNAP Range-Doppler Terrain Correction pipeline with DEM {dem_source}...")
+            logger.info(f"Executing ESA SNAP Range-Doppler Terrain Correction pipeline with DEM {dem_source_final}...")
             return SNAPGraphProcessor.execute_snap_calibration_pipeline(
                 safe_path=safe_dir,
                 output_geotiff_path=output_path,
                 polarization=pol_upper,
                 target_crs=target_crs,
-                dem_source=dem_source,
+                dem_source=dem_source_final,
+                enable_layover_shadow_mask=enable_layover_shadow_mask,
+                aoi_wkt=aoi_wkt,
             )
 
         meas_path = meta.measurement_files[pol_upper]

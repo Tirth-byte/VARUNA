@@ -1,0 +1,37 @@
+{
+  "bounds_wgs84": [
+    85.04996096098255,
+    27.8499136746345,
+    85.40002847098255,
+    28.2500164946345
+  ],
+  "leaflet_bounds": [
+    [
+      27.8499136746345,
+      85.04996096098255
+    ],
+    [
+      28.2500164946345,
+      85.40002847098255
+    ]
+  ],
+  "source_scenes": {
+    "pre_event": "S1D_IW_GRDH_1SDV_20260824T001844_... (2026-08-24 00:18:44 UTC)",
+    "post_event": "S1D_IW_GRDH_1SDV_20260905T001844_... (2026-09-05 00:18:44 UTC)",
+    "orbit": "Relative Orbit 19, DESCENDING, IW, VV polarization",
+    "repeat_cycle_days": 12.0
+  },
+  "intensity_stretch_db": {
+    "vmin": -22.0,
+    "vmax": 2.0,
+    "domain": "Decibels (10*log10(sigma0))"
+  },
+  "change_thresholds_db": {
+    "water_drop": -3.5,
+    "debris_gain": 3.5
+  },
+  "reprojected_dimensions": [
+    1808,
+    2342
+  ]
+}

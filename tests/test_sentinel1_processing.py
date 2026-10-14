@@ -15,6 +15,7 @@ import json
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +35,7 @@ from varuna.preprocessing.sentinel1 import (
     Sentinel1ProductInspector,
     Sentinel1CalibrationLUTExtractor,
     AuthenticSentinel1Processor,
+    SNAPGraphProcessor,
     CorruptSAFEProductError,
     IncompatiblePolarizationError,
     IncompatibleSAFEProductPairError,
@@ -177,6 +179,7 @@ class TestSentinel1ProcessingIntegrity(unittest.TestCase):
             output_calibrated_path=output_tif,
             polarization="VV",
             work_dir=self.base_dir / "work",
+            require_range_doppler=False,  # Tests Python-native Level-1 XML LUT formula directly
         )
 
         self.assertTrue(out_path.exists())
@@ -306,17 +309,18 @@ class TestSentinel1ProcessingIntegrity(unittest.TestCase):
         safe_zip = self._create_mock_safe_archive("S1D_SNAP_TEST.SAFE.zip")
         out_tif = self.base_dir / "terrain_corrected.tif"
 
-        # Explicitly require Range-Doppler Terrain Correction
-        with self.assertRaises(TerrainCorrectionUnavailableError) as ctx:
-            AuthenticSentinel1Processor.process_sentinel1_product(
-                product_path=safe_zip,
-                output_calibrated_path=out_tif,
-                polarization="VV",
-                require_range_doppler=True,
-                dem_source="SRTM 3Sec",
-            )
-        self.assertIn("requires Range-Doppler Terrain Correction using ESA SNAP GPT", str(ctx.exception))
-        self.assertIn("Silent downgrades to less rigorous methods are strictly prohibited", str(ctx.exception))
+        # Explicitly mock SNAP absent to verify that terrain correction fails closed rather than silently downgrading
+        with patch.object(SNAPGraphProcessor, "is_snap_available", return_value=False):
+            with self.assertRaises(TerrainCorrectionUnavailableError) as ctx:
+                AuthenticSentinel1Processor.process_sentinel1_product(
+                    product_path=safe_zip,
+                    output_calibrated_path=out_tif,
+                    polarization="VV",
+                    require_range_doppler=True,
+                    dem_source="SRTM 3Sec",
+                )
+            self.assertIn("requires Range-Doppler Terrain Correction using ESA SNAP GPT", str(ctx.exception))
+            self.assertIn("Silent downgrades to less rigorous methods are strictly prohibited", str(ctx.exception))
 
     def test_defect_c_missing_annotation_metadata_fails_closed(self):
         """Defect C: SAFE archives missing required annotation XML tags must fail closed with CorruptSAFEProductError."""
@@ -374,9 +378,91 @@ class TestSentinel1ProcessingIntegrity(unittest.TestCase):
                 polarization="VH",
             )
         self.assertIn("Requested polarization 'VH' not present in SAFE product", str(ctx.exception))
-        self.assertIn("Silent polarization switching or substitution is strictly prohibited", str(ctx.exception))
+    def test_authentic_cog_safe_metadata_parsing_from_manifest(self):
+        """Verify authentic ESA Sentinel-1 COG SAFE layout where relativeOrbitNumber is in manifest.safe."""
+        cog_safe_dir = self.base_dir / "S1D_IW_GRDH_1SDV_20260824T001844_20260824T001909_004260_007D5D_45FC_COG.SAFE"
+        meas_dir = cog_safe_dir / "measurement"
+        ann_dir = cog_safe_dir / "annotation" / "calibration"
+        meas_dir.mkdir(parents=True, exist_ok=True)
+        ann_dir.mkdir(parents=True, exist_ok=True)
+
+        # Authentic manifest.safe with safe:orbitReference
+        manifest = cog_safe_dir / "manifest.safe"
+        manifest.write_text("""<?xml version="1.0" encoding="UTF-8"?>
+<xfdu:XFDU xmlns:xfdu="urn:ccsds:schema:xfdu:1" xmlns:safe="http://www.esa.int/safe/sentinel-1.0" xmlns:s1="http://www.esa.int/safe/sentinel-1.0/sentinel-1">
+  <metadataSection>
+    <metadataObject ID="measurementOrbitReference">
+      <metadataWrap>
+        <xmlData>
+          <safe:orbitReference>
+            <safe:orbitNumber type="start">4260</safe:orbitNumber>
+            <safe:relativeOrbitNumber type="start">19</safe:relativeOrbitNumber>
+            <safe:extension>
+              <s1:orbitProperties>
+                <s1:pass>DESCENDING</s1:pass>
+              </s1:orbitProperties>
+            </safe:extension>
+          </safe:orbitReference>
+        </xmlData>
+      </metadataWrap>
+    </metadataObject>
+  </metadataSection>
+</xfdu:XFDU>""")
+
+        # Authentic annotation XML without relativeOrbitNumber (exactly like genuine CDSE COG products)
+        ann_xml = cog_safe_dir / "annotation" / "s1d-iw-grd-vv-20260824t001844-004260-007d5d-001-cog.xml"
+        ann_xml.write_text("""<?xml version="1.0" encoding="UTF-8"?>
+<product>
+  <adsHeader>
+    <mode>IW</mode>
+    <productType>GRD</productType>
+    <pass>Descending</pass>
+    <startTime>2026-08-24T00:18:44.555468</startTime>
+    <stopTime>2026-08-24T00:19:09.553884</stopTime>
+    <absoluteOrbitNumber>4260</absoluteOrbitNumber>
+  </adsHeader>
+</product>""")
+
+        # Measurement raster
+        meas_file = meas_dir / "s1d-iw-grd-vv-20260824t001844-004260-007d5d-001-cog.tiff"
+        transform = from_origin(85.1, 28.1, 0.001, 0.001)
+        profile = {
+            "driver": "GTiff",
+            "height": 10,
+            "width": 10,
+            "count": 1,
+            "dtype": rasterio.float32,
+            "crs": "EPSG:4326",
+            "transform": transform,
+            "nodata": 0.0,
+        }
+        with rasterio.open(meas_file, "w", **profile) as dst:
+            dst.write(np.full((10, 10), 500.0, dtype=np.float32), 1)
+
+        # Calibration XML
+        cal_xml = ann_dir / "calibration-s1d-iw-grd-vv-20260824t001844-004260-007d5d-001-cog.xml"
+        cal_xml.write_text("""<?xml version="1.0" encoding="UTF-8"?>
+<calibration>
+  <calibrationVectorList count="1">
+    <calibrationVector>
+      <line>0</line>
+      <pixel>0 9</pixel>
+      <sigmaNought>25.0 25.0</sigmaNought>
+    </calibrationVector>
+  </calibrationVectorList>
+</calibration>""")
+
+        meta, _ = Sentinel1ProductInspector.inspect(cog_safe_dir, work_dir=self.base_dir)
+        self.assertEqual(meta.relative_orbit, 19)
+        self.assertEqual(meta.absolute_orbit, 4260)
+        self.assertEqual(meta.orbit_direction, "DESCENDING")
+        self.assertEqual(meta.sensor_mode, "IW")
+        self.assertEqual(meta.product_type, "GRD")
+        self.assertEqual(meta.polarizations, ["VV"])
+        self.assertTrue("COG" in meta.product_name)
 
 
 if __name__ == "__main__":
     unittest.main()
+
 

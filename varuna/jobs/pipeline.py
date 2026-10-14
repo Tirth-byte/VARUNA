@@ -381,9 +381,28 @@ class JobPipelineManager:
                 job.progress_percent = 35
                 job.log(f"Downloading pre-event scene {rec.before_scene.cdse_id}...")
                 raw_dir = job.output_dir / "raw"
-                pre_path = downloader.download_product(rec.before_scene.cdse_id, raw_dir, rec.before_scene.scene_id)
-                job.log(f"Downloading post-event scene {rec.after_scene.cdse_id}...")
-                post_path = downloader.download_product(rec.after_scene.cdse_id, raw_dir, rec.after_scene.scene_id)
+                try:
+                    pre_path = downloader.download_product(rec.before_scene.cdse_id, raw_dir, rec.before_scene.scene_id)
+                    job.log(f"Downloading post-event scene {rec.after_scene.cdse_id}...")
+                    post_path = downloader.download_product(rec.after_scene.cdse_id, raw_dir, rec.after_scene.scene_id)
+                except AuthenticationRequiredError as e:
+                    job.status = JobStatus.AWAITING_AUTHENTICATION
+                    job.progress_percent = 30
+                    msg = (
+                        f"Authentication required: Copernicus credentials failed verification: {e}. "
+                        "Binary Sentinel-1 product download halted at authentication boundary. "
+                        "Verify CDSE credentials on https://dataspace.copernicus.eu."
+                    )
+                    job.log(msg)
+                    job.error_message = msg
+                    job.summary_results = {
+                        "stage_reached": "SCENE_DISCOVERY_VERIFIED",
+                        "discovery_successful": True,
+                        "selected_pair": job.selected_scenes,
+                        "blocker": str(e),
+                    }
+                    job.save_state()
+                    return job
 
             # Step 4: Preprocessing (Calibration, Filtering, Masking)
             job.status = JobStatus.PREPROCESSING
@@ -492,6 +511,11 @@ class JobPipelineManager:
                     "unit_domain": "DECIBELS_DB (10*log10(sigma0))",
                     "nodata_masking": "Preserved without artificial dB clipping",
                 },
+                "terrain_correction": {
+                    "method": "ESA_SNAP_RANGE_DOPPLER" if job.data_origin == "REAL_SENTINEL1_OBSERVATION" else "NONE",
+                    "dem_source": os.getenv("DEM_SOURCE", "Copernicus 30m Global DEM"),
+                    "layover_shadow_masking": "ENABLED" if job.data_origin == "REAL_SENTINEL1_OBSERVATION" else "N/A",
+                },
                 "detection_thresholds": {
                     "water_threshold_db": job.water_threshold_db,
                     "debris_threshold_db": job.debris_threshold_db,
@@ -555,13 +579,19 @@ class JobPipelineManager:
         is_safe_zip = input_path.is_file() and (".SAFE" in input_path.name or input_path.suffix.lower() == ".zip")
 
         if is_safe_dir or is_safe_zip:
-            job.log(f"Authentic Sentinel-1 SAFE package detected: {input_path.name}. Executing XML metadata calibration.")
+            job.log(f"Authentic Sentinel-1 SAFE package detected: {input_path.name}. Executing Range-Doppler Terrain Correction & Calibration.")
+            aoi_poly = shape(job.aoi_geojson) if job.aoi_geojson else None
+            aoi_wkt = aoi_poly.buffer(0.05).envelope.wkt if aoi_poly and not aoi_poly.is_empty else None
             AuthenticSentinel1Processor.process_sentinel1_product(
                 product_path=input_path,
                 output_calibrated_path=output_path,
                 polarization=job.polarization,
                 work_dir=job.output_dir / "safe_extracted",
                 apply_speckle_filter=True,
+                require_range_doppler=not job.allow_synthetic,
+                dem_source=os.getenv("DEM_SOURCE", "Copernicus 30m Global DEM"),
+                enable_layover_shadow_mask=True,
+                aoi_wkt=aoi_wkt,
             )
             job.data_origin = "REAL_SENTINEL1_OBSERVATION"
             return

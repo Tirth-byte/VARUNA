@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VARUNA — Earth Observation & Flood Intelligence Workspace</title>
+  
+  <!-- Inter Google Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Top Application Header -->
+  <header class="app-header">
+    <div class="brand-section">
+      <div class="brand-emblem-wrap" title="VARUNA — Earth Observation & Flood Intelligence Workspace">
+        <svg class="brand-emblem" width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <rect width="32" height="32" rx="7" fill="#176B52"/>
+          <!-- Hydrodynamic & SAR Wavefront Vector converging to nadir point -->
+          <path d="M7 9.5C10.8 14 12.8 18.2 16 24.5C19.2 18.2 21.2 14 25 9.5" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M10.5 8.5C13.2 12.2 14.5 15.5 16 19.5C17.5 15.5 18.8 12.2 21.5 8.5" stroke="rgba(255, 255, 255, 0.7)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="16" cy="6" r="1.6" fill="#A7F3D0"/>
+        </svg>
+      </div>
+      <div class="brand-title-wrap">
+        <div class="brand-title">
+          <span class="brand-name">VARUNA</span>
+          <span class="brand-version">RESEARCH v2.4</span>
+        </div>
+        <div class="brand-subtitle">Trishuli River Basin, Nepal · August 26, 2026 Disaster Assessment</div>
+      </div>
+    </div>
+
+    <div class="header-telemetry" aria-label="Mission Sensor Telemetry">
+      <div class="telemetry-item">
+        <span class="telemetry-dot" title="Job Status: Complete"></span>
+        <span class="telemetry-muted">Job:</span>
+        <code class="telemetry-code">2ed78818</code>
+      </div>
+      <div class="telemetry-separator"></div>
+      <div class="telemetry-item">
+        <span class="telemetry-muted">Sensor:</span>
+        <span class="telemetry-val">Sentinel-1 C-SAR</span>
+      </div>
+      <div class="telemetry-separator"></div>
+      <div class="telemetry-item">
+        <span class="telemetry-muted">Orbit:</span>
+        <span class="telemetry-val">19 Desc (VV)</span>
+      </div>
+      <div class="telemetry-separator"></div>
+      <div class="telemetry-item">
+        <span class="telemetry-muted">DEM:</span>
+        <span class="telemetry-val">Copernicus 30m Global</span>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn-header" id="btnResetMap" title="Reset Map View to Full Trishuli Analysis Domain">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        <span>Reset Extent</span>
+      </button>
+      <a href="docs/SITUATION_REPORT_NEPAL_2026.pdf" id="btnExportSitrep" target="_blank" class="btn-header" title="Open 1-Page Emergency SitRep PDF">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        <span>SitRep (PDF)</span>
+      </a>
+      <a href="docs/RESEARCH_REPORT_TRISHULI_FLOOD_2026.pdf" id="btnExportResearch" target="_blank" class="btn-header" title="Open 6-Page Scientific Research Report PDF">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span>Research Report (PDF)</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- App Main Layout -->
+  <div class="app-layout">
+    
+    <!-- Left Navigation Rail (Four Primary Workspaces) -->
+    <nav class="nav-rail" aria-label="Workspaces Navigation">
+      <div class="rail-group">
+        <!-- 1. Satellite Comparison -->
+        <button class="rail-btn active" data-workspace="comparison" id="btnWsComparison" title="Workspace 1: Satellite Comparison (Pre vs Post Sentinel-1 SAR)">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="16" rx="2"/>
+            <line x1="12" y1="4" x2="12" y2="20"/>
+            <path d="M7 10l-2 2 2 2"/>
+            <path d="M17 10l2 2-2 2"/>
+          </svg>
+          <span class="rail-btn-label">Satellite Comparison</span>
+        </button>
+
+        <!-- 2. Surface Change -->
+        <button class="rail-btn" data-workspace="change" id="btnWsChange" title="Workspace 2: Surface Change (Interpretable SAR Difference & Hazard Rasters)">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 17l6-6 4 4 8-8"/>
+            <path d="M14 7h7v7"/>
+            <path d="M3 21h18"/>
+          </svg>
+          <span class="rail-btn-label">Surface Change</span>
+        </button>
+
+        <!-- 3. Infrastructure Exposure -->
+        <button class="rail-btn" data-workspace="exposure" id="btnWsExposure" title="Workspace 3: Infrastructure Exposure (Roads & Buildings Impact)">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 21h18"/>
+            <rect x="5" y="7" width="6" height="14" rx="1"/>
+            <rect x="13" y="11" width="6" height="10" rx="1"/>
+            <path d="M8 11h.01M8 15h.01M16 15h.01M16 18h.01"/>
+            <path d="M2 17l10-10 10 10" stroke-dasharray="2 2"/>
+          </svg>
+          <span class="rail-btn-label">Infrastructure Exposure</span>
+        </button>
+
+        <!-- 4. Reference Validation -->
+        <button class="rail-btn" data-workspace="validation" id="btnWsValidation" title="Workspace 4: Reference Validation (Copernicus EMSR927 Benchmark)">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/>
+            <line x1="12" y1="3" x2="12" y2="6"/>
+            <line x1="12" y1="18" x2="12" y2="21"/>
+            <line x1="3" y1="12" x2="6" y2="12"/>
+            <line x1="18" y1="12" x2="21" y2="12"/>
+            <path d="M9 12l2 2 4-4"/>
+          </svg>
+          <span class="rail-btn-label">Reference Validation</span>
+        </button>
+
+        <!-- 5. Situation Copilot (AI Component) -->
+        <button class="rail-btn" data-workspace="copilot" id="btnWsCopilot" title="Workspace 5: Situation Copilot (Bilingual AI Assistant)">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            <path d="M8 10h.01M12 10h.01M16 10h.01"/>
+          </svg>
+          <span class="rail-btn-label">Situation Copilot</span>
+        </button>
+      </div>
+
+      <div class="rail-group rail-bottom">
+        <button class="rail-btn" id="btnTogglePanel" title="Toggle Contextual Analysis Panel">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="16" rx="2"/>
+            <line x1="15" y1="4" x2="15" y2="20"/>
+          </svg>
+          <span class="rail-btn-label">Analysis Panel</span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Center Map Area -->
+    <main class="map-viewport">
+      <div id="map"></div>
+
+      <!-- Top Floating Workspace Toolbar (Changes per workspace) -->
+      <div class="map-workspace-toolbar" id="workspaceToolbar">
+        <!-- Injected dynamically via JS based on active workspace -->
+      </div>
+
+      <!-- Top-Right Floating Controls (Layers & Basemaps) -->
+      <div class="map-floating-controls">
+        <div class="floating-btn-group">
+          <button class="floating-btn" id="btnZoomIn" title="Zoom In">
+            <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+          <button class="floating-btn" id="btnZoomOut" title="Zoom Out">
+            <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+          <button class="floating-btn" id="btnToggleLayersMenu" title="Layer Visibility & Opacity">
+            <svg viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Layer Control Popover Menu -->
+      <div class="layer-menu-popover" id="layerMenuPopover">
+        <div class="popover-header">Scientific Layers</div>
+        
+        <label class="layer-toggle-row">
+          <div class="layer-toggle-info">
+            <div class="layer-chip" style="background:#1D63B8;"></div>
+            <span>SAR Candidate Flood</span>
+          </div>
+          <input type="checkbox" id="chkWater" checked>
+        </label>
+
+        <label class="layer-toggle-row">
+          <div class="layer-toggle-info">
+            <div class="layer-chip" style="background:#C2611B;"></div>
+            <span>SAR Candidate Debris</span>
+          </div>
+          <input type="checkbox" id="chkDebris" checked>
+        </label>
+
+        <label class="layer-toggle-row">
+          <div class="layer-toggle-info">
+            <div class="layer-chip" style="background:rgba(109,40,217,0.3); border:1px dashed #6D28D9;"></div>
+            <span>EMSR927 Event Extent</span>
+          </div>
+          <input type="checkbox" id="chkEmsr" checked>
+        </label>
+
+        <label class="layer-toggle-row">
+          <div class="layer-toggle-info">
+            <div class="layer-chip" style="background:#B91C1C; border-radius:50%;"></div>
+            <span>Surveyed Buildings</span>
+          </div>
+          <input type="checkbox" id="chkBldgs" checked>
+        </label>
+
+        <label class="layer-toggle-row">
+          <div class="layer-toggle-info">
+            <div class="layer-chip" style="background:#C2410C;"></div>
+            <span>Exposed Road Network</span>
+          </div>
+          <input type="checkbox" id="chkRoads" checked>
+        </label>
+
+        <label class="layer-toggle-row">
+          <div class="layer-toggle-info">
+            <div class="layer-chip" style="background:#0D9488;"></div>
+            <span>Pasang Lhamu Highway</span>
+          </div>
+          <input type="checkbox" id="chkHighway" checked>
+        </label>
+
+        <div class="popover-header" style="margin-top:10px;">Basemap Context</div>
+        <select class="toolbar-select" id="selBasemap" style="width:100%;">
+          <option value="topo" selected>Topographic Terrain (Esri Topo)</option>
+          <option value="satellite">Satellite Context (Esri Pre-Event)</option>
+        </select>
+      </div>
+
+      <!-- Interactive Swipe Curtain (Active in Workspace 1) -->
+      <div class="swipe-curtain-container" id="swipeCurtainContainer">
+        <div class="swipe-divider-line" id="swipeDividerLine" style="left: 50%;">
+          <div class="swipe-divider-handle" id="swipeDividerHandle">
+            <svg viewBox="0 0 24 24"><path d="m9 18-6-6 6-6"/><path d="m15 6 6 6-6 6"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top Pre/Post Scene Labels for Comparison -->
+      <div class="swipe-labels" id="swipeLabels">
+        <div class="swipe-label-pill">← Pre-Event (Aug 24)</div>
+        <div class="swipe-label-pill">Post-Event (Sept 5) →</div>
+      </div>
+
+      <!-- Bottom Floating Status Bar -->
+      <div class="map-status-bar" id="mapStatusBar">
+        <div class="status-bar-item" title="True Geographic North">
+          <span class="north-arrow">▲</span>
+          <span>N</span>
+        </div>
+        <div class="status-bar-divider"></div>
+        <div class="status-bar-item" title="Center Coordinates (WGS84 Ellipsoidal)">
+          <span id="txtCoords">28.0400° N, 85.2300° E</span>
+        </div>
+        <div class="status-bar-divider status-sep-res"></div>
+        <div class="status-bar-item status-item-res" title="Native: 10m Sentinel-1 Level-1 GRD · Display: 18.6m/px Web Mercator">
+          <span class="status-res">10m S1 · 18.6m/px</span>
+        </div>
+        <div class="status-bar-divider status-sep-aoi"></div>
+        <div class="status-bar-item status-item-aoi" title="Analysis Domain: Trishuli River Basin, Nepal (1,526 km²)">
+          <span>AOI: Trishuli</span>
+        </div>
+        <div class="status-bar-divider"></div>
+        <div class="status-bar-item status-item-basemap">
+          <button class="btn-basemap-toggle" id="btnToggleBasemapStatus" title="Toggle between Topographic Terrain and Satellite Ortho">
+            Basemap: Topo Relief
+          </button>
+        </div>
+      </div>
+
+      <!-- Floating Minimalist Legend -->
+      <div class="map-floating-legend" id="mapLegend">
+        <div class="legend-title" id="legendTitle">Active Cartography</div>
+        <div class="legend-items" id="legendItems">
+          <!-- Dynamically populated by JS based on workspace -->
+        </div>
+      </div>
+    </main>
+
+    <!-- Right Contextual Analysis Panel -->
+    <aside class="analysis-panel" id="analysisPanel">
+      <div class="panel-header">
+        <div class="panel-header-title" id="panelTitle">
+          Satellite Comparison
+        </div>
+        <span class="panel-header-badge" id="panelBadge">C-SAR Orbit 19</span>
+      </div>
+
+      <div class="panel-body" id="panelBody">
+        <!-- Injected dynamically based on active workspace -->
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  
+  <script src="app.js"></script>
+</body>
+</html>

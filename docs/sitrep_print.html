@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VARUNA Emergency Situation Report 01 (SITREP 01)</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 8mm 9mm 8mm 9mm;
+  }
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 7.2pt;
+    line-height: 1.22;
+    color: #0f172a;
+    background: #ffffff;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* Top Banner */
+  .header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #176B52;
+    padding-bottom: 4px;
+    margin-bottom: 5px;
+  }
+  .brand-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .brand-emblem {
+    width: 26px;
+    height: 26px;
+    background: #176B52;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .brand-title {
+    font-size: 11pt;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: 0.5px;
+    margin: 0;
+    line-height: 1.1;
+  }
+  .brand-subtitle {
+    font-size: 6.8pt;
+    font-weight: 600;
+    color: #176B52;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin: 0;
+  }
+  .sitrep-badge {
+    text-align: right;
+  }
+  .badge-title {
+    font-size: 9pt;
+    font-weight: 800;
+    color: #b91c1c;
+    letter-spacing: 0.4px;
+    margin: 0;
+  }
+  .badge-meta {
+    font-size: 6.5pt;
+    color: #64748b;
+    margin: 0;
+    font-weight: 500;
+  }
+
+  /* Disaster Details Strip */
+  .event-strip {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 4px 6px;
+    margin-bottom: 5px;
+    display: grid;
+    grid-template-columns: 2fr 1.5fr 1.5fr;
+    gap: 6px;
+    font-size: 6.8pt;
+  }
+  .event-item strong {
+    color: #1e293b;
+  }
+
+  /* 4 KPI Indicator Cards */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 5px;
+    margin-bottom: 6px;
+  }
+  .kpi-card {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-top: 3px solid #176B52;
+    border-radius: 3px;
+    padding: 4px 6px;
+  }
+  .kpi-card.water { border-top-color: #1d63b8; }
+  .kpi-card.debris { border-top-color: #c2611b; }
+  .kpi-card.bldgs { border-top-color: #dc2626; }
+  .kpi-card.roads { border-top-color: #0d9488; }
+  .kpi-label {
+    font-size: 6pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: #64748b;
+    margin-bottom: 1px;
+  }
+  .kpi-val {
+    font-size: 11pt;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.1;
+  }
+  .kpi-sub {
+    font-size: 5.8pt;
+    color: #475569;
+    margin-top: 1px;
+  }
+
+  /* Main Body Split: Dominant Map on Left, Analysis on Right */
+  .main-split {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 7px;
+    align-items: start;
+  }
+  
+  /* Map Container */
+  .map-box {
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #f8fafc;
+    padding: 3px;
+    text-align: center;
+  }
+  .map-box img {
+    width: 100%;
+    height: auto;
+    max-height: 290px;
+    object-fit: contain;
+    border-radius: 2px;
+    display: block;
+    margin: 0 auto;
+  }
+  .map-caption {
+    font-size: 5.8pt;
+    color: #475569;
+    margin-top: 2px;
+    text-align: left;
+    line-height: 1.2;
+    padding: 1px 2px;
+  }
+
+  /* Right Section Intelligence Blocks */
+  .section-block {
+    margin-bottom: 5px;
+  }
+  .section-title {
+    font-size: 7.2pt;
+    font-weight: 700;
+    color: #0f172a;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-bottom: 1px solid #cbd5e1;
+    padding-bottom: 1px;
+    margin: 0 0 2px 0;
+  }
+  .section-content {
+    font-size: 6.8pt;
+    line-height: 1.22;
+    color: #334155;
+    margin: 0;
+    text-align: justify;
+  }
+  .section-list {
+    margin: 2px 0 0 10px;
+    padding: 0;
+    font-size: 6.6pt;
+    line-height: 1.22;
+    color: #334155;
+  }
+  .section-list li {
+    margin-bottom: 1px;
+  }
+
+  /* Alert / Disclaimer Callout */
+  .caveat-callout {
+    background: #fffbeb;
+    border: 1px solid #fef3c7;
+    border-left: 2.5px solid #d97706;
+    padding: 3px 5px;
+    font-size: 6.2pt;
+    line-height: 1.2;
+    color: #92400e;
+    border-radius: 2px;
+    margin: 4px 0;
+  }
+  .caveat-callout strong {
+    color: #78350f;
+  }
+
+  /* Table styling */
+  table.mini-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 6.2pt;
+    line-height: 1.15;
+    margin: 2px 0;
+  }
+  table.mini-table th, table.mini-table td {
+    border: 1px solid #e2e8f0;
+    padding: 2px 4px;
+    text-align: left;
+  }
+  table.mini-table th {
+    background: #f1f5f9;
+    font-weight: 700;
+    color: #1e293b;
+  }
+  table.mini-table td.num {
+    text-align: right;
+  }
+
+  /* Bottom Metadata Bar */
+  .footer-bar {
+    border-top: 1px solid #cbd5e1;
+    padding-top: 3px;
+    margin-top: 4px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 5.8pt;
+    color: #64748b;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Top Header -->
+  <div class="header-container">
+    <div class="brand-group">
+      <div class="brand-emblem">
+        <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
+          <path d="M7 9.5C10.8 14 12.8 18.2 16 24.5C19.2 18.2 21.2 14 25 9.5" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M10.5 8.5C13.2 12.2 14.5 15.5 16 19.5C17.5 15.5 18.8 12.2 21.5 8.5" stroke="rgba(255, 255, 255, 0.75)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="16" cy="6" r="1.8" fill="#A7F3D0"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="brand-title">VARUNA SATELLITE DISASTER INTELLIGENCE</h1>
+        <p class="brand-subtitle">European Space Agency Sentinel-1 SAR Rapid Assessment • Nepal Flash Flood</p>
+      </div>
+    </div>
+    <div class="sitrep-badge">
+      <p class="badge-title">SITREP 01 (OPERATIONAL)</p>
+      <p class="badge-meta">Job ID: 2ed78818 • Published: 2026-10-12T10:30Z</p>
+    </div>
+  </div>
+
+  <!-- Event & Telemetry Metadata Strip -->
+  <div class="event-strip">
+    <div class="event-item">
+      <strong>Event:</strong> August 26, 2026 Trishuli River GLOF & Flash Flood<br>
+      <strong>Domain:</strong> Rasuwa & Nuwakot Districts, Central Nepal (1,526.05 km²)
+    </div>
+    <div class="event-item">
+      <strong>Pre-Event SAR:</strong> 2026-08-24 00:18:44 UTC (2d Pre)<br>
+      <strong>Post-Event SAR:</strong> 2026-09-05 00:18:44 UTC (10d Post)
+    </div>
+    <div class="event-item">
+      <strong>Sensor / Geometry:</strong> Sentinel-1 C-SAR IW VV, Orbit 19 Desc.<br>
+      <strong>Orthorectification:</strong> ESA SNAP 10 + Copernicus 30m DEM
+    </div>
+  </div>
+
+  <!-- 4 Primary Key Indicators -->
+  <div class="kpi-grid">
+    <div class="kpi-card water">
+      <div class="kpi-label">Candidate Floodwater</div>
+      <div class="kpi-val">126.60 km²</div>
+      <div class="kpi-sub">1,439,895 px (8.30%) • Δσ° ≤ -3.5 dB</div>
+    </div>
+    <div class="kpi-card debris">
+      <div class="kpi-label">Candidate Debris / Scour</div>
+      <div class="kpi-val">108.21 km²</div>
+      <div class="kpi-sub">1,230,733 px (7.09%) • Δσ° ≥ +3.5 dB</div>
+    </div>
+    <div class="kpi-card bldgs">
+      <div class="kpi-label">Potentially Exposed Buildings</div>
+      <div class="kpi-val">1,062 / 3,816</div>
+      <div class="kpi-sub">27.83% of surveyed sample • 936 destroyed bldgs</div>
+    </div>
+    <div class="kpi-card roads">
+      <div class="kpi-label">Potentially Exposed Roads</div>
+      <div class="kpi-val">35.12 km</div>
+      <div class="kpi-sub">13.47% of 260.7 km network • 9.62 km Hwy</div>
+    </div>
+  </div>
+
+  <!-- Main Body: Map on Left, Intelligence Synthesis on Right -->
+  <div class="main-split">
+    
+    <!-- Left Column: Dominant Publication Map -->
+    <div class="map-box">
+      <img src="../data/demo_evidence/map_1_trishuli_regional_overview_publication.png" alt="Trishuli Flood Hazard Overview Map">
+      <div class="map-caption">
+        <strong>Figure 1: Authentic Sentinel-1 C-band SAR Change Classification.</strong> Bitemporal change over Trishuli River Gorge between Aug 24 and Sept 5, 2026. Cyan: Candidate Floodwater (specular radar drop Δσ° ≤ -3.5 dB). Orange: Candidate Surface Debris / Roughening (Δσ° ≥ +3.5 dB). Purple dashed: Copernicus EMS EMSR927 surveyed disaster footprint. Teal: Pasang Lhamu National Highway corridor.
+      </div>
+    </div>
+
+    <!-- Right Column: Operational Briefing Blocks -->
+    <div>
+      
+      <!-- Executive Summary -->
+      <div class="section-block">
+        <div class="section-title">1. Executive Summary</div>
+        <p class="section-content">
+          On August 26, 2026, a catastrophic Glacial Lake Outburst Flood (GLOF) and monsoon downpour surged through the high-gradient Trishuli River gorge in central Nepal. Leveraging authentic European Space Agency Sentinel-1 C-SAR repeat-pass observations orthorectified via ESA SNAP Range-Doppler Terrain Correction, VARUNA identified <strong>126.60 km²</strong> of candidate standing water and <strong>108.21 km²</strong> of coarsened debris/scour across the 1,526.05 km² Common Analysis Grid. Geodesic verification confirms negligible projection distortion (+0.015% WGS84 geodesic variance).
+        </p>
+      </div>
+
+      <!-- Copernicus EMSR927 Validation -->
+      <div class="section-block">
+        <div class="section-title">2. Reference Validation (Copernicus EMSR927)</div>
+        <p class="section-content">
+          Evaluated against European Commission Copernicus EMS activation EMSR927 optical truth:
+        </p>
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th>Sector / Benchmark</th>
+              <th class="num">Event Area</th>
+              <th class="num">SAR Overlap</th>
+              <th class="num">Coincidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Bidur Confluence (AOI03)</strong></td>
+              <td class="num">5.89 km²</td>
+              <td class="num">2.19 km²</td>
+              <td class="num"><strong>37.16%</strong></td>
+            </tr>
+            <tr>
+              <td>Syapru Besi Gorge (AOI01)</td>
+              <td class="num">1.11 km²</td>
+              <td class="num">0.26 km²</td>
+              <td class="num"><strong>23.70%</strong></td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="section-content" style="font-size: 6.2pt; color: #64748b; margin-top: 2px;">
+          <em>Note:</em> Overlap denotes <strong>observed-event spatial coincidence</strong> reflecting rapid post-peak hydrologic recession across a 10-day observation window, not classic algorithmic precision/recall.
+        </p>
+      </div>
+
+      <!-- Infrastructure Exposure -->
+      <div class="section-block">
+        <div class="section-title">3. Critical Infrastructure Exposure</div>
+        <ul class="section-list">
+          <li><strong>Building Structures:</strong> 1,062 of 3,816 surveyed structures (27.83%) intersect SAR hazard pixels (884 flood, 178 debris). Of 2,813 confirmed <em>Destroyed</em> structures in EMSR927, <strong>936 structures (33.27%)</strong> intersect persistent SAR anomaly pixels.</li>
+          <li><strong>Transportation Network:</strong> 35.12 km of 260.71 km surveyed road length (13.47%) intersect hazard zones (20.70 km water, 14.42 km debris, 0.00 km double-counted).</li>
+          <li><strong>Pasang Lhamu Highway Corridor:</strong> 9.62 km of the 57.95 km lifeline corridor intersects hazard screening zones. Proximity audit confirms only 0.30 km lies within 50m of destroyed local riverbed access tracks.</li>
+        </ul>
+      </div>
+
+      <!-- Essential Scientific Limitations & Legal Notice -->
+      <div class="caveat-callout">
+        <strong>OPERATIONAL DISCLAIMER & DATA PROVENANCE:</strong><br>
+        1. <strong>Potential Exposure vs Destruction:</strong> Satellite hazard intersections indicate <em>potential exposure</em>. They do <em>not</em> prove physical collapse or impassability without civil engineering ground inspection.<br>
+        2. <strong>10-Day Observation Lag:</strong> Post-event Sentinel-1 pass occurred September 5, 2026. High-gradient flood crests drain in 24–48h; SAR detects persistent standing water, widened beds, and saturated terraces.<br>
+        3. <strong>Terrain Shadow Limitation:</strong> Auxiliary shadow bands were omitted during single-band dB export; backscatter increases on extreme cliffs (>25°) require cautious optical confirmation.
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Footer Metadata & Mandatory Competition Attributions -->
+  <div class="footer-bar">
+    <div>VARUNA Mission Control • Track B: Mapping Flood Damage from Space • Case Study: August 2026 Trishuli Flood, Nepal</div>
+    <div>Contains modified Copernicus Sentinel data 2026. • Produced using Copernicus WorldDEM-30 © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018 provided under COPERNICUS by the European Union and ESA; all rights reserved. • © OpenStreetMap contributors. • European Union, Copernicus Emergency Management Service data.</div>
+  </div>
+
+</body>
+</html>

@@ -532,9 +532,134 @@ def generate_figure4():
     print(f"  -> Generated {out_path} ({round(out_path.stat().st_size / 1e3, 1)} KB)")
 
 
+def generate_sitrep_figure():
+    """
+    Figure for Operational Situation Report 01.
+    Slot: 202.0358 x 235.2756 pt (exact ratio: 0.8587196).
+    """
+    print("\n[SitRep Figure] Rendering Sentinel-1 Bitemporal Change-Screening Map...")
+    with rasterio.open(POST_TIF) as src_post:
+        post_arr = src_post.read(1)
+        bounds = src_post.bounds
+        extent = [bounds.left, bounds.right, bounds.bottom, bounds.top]
+
+    with rasterio.open(CLS_TIF) as src_cls:
+        cls_arr = src_cls.read(2)
+
+    vmin, vmax = -22.0, 2.0
+    sar_norm = np.clip((post_arr - vmin) / (vmax - vmin), 0.0, 1.0)
+    sar_norm[post_arr <= -9000] = np.nan
+
+    h, w = cls_arr.shape
+    hazard_rgba = np.zeros((h, w, 4), dtype=np.float32)
+    hazard_rgba[cls_arr == 2] = [29/255, 99/255, 184/255, 0.88]
+    hazard_rgba[cls_arr == 3] = [217/255, 119/255, 6/255, 0.88]
+    hazard_rgba[cls_arr == 4] = [11/255, 37/255, 69/255, 0.88]
+
+    gdf_emsr = gpd.read_file(EMSR_GEOJSON)
+    gdf_hw = gpd.read_file(HW_GEOJSON)
+
+    # 4.2936 x 5.0 inches at 500 DPI = 2147 x 2500 px (Exact ratio: 0.85872)
+    fig, ax = plt.subplots(figsize=(4.2936, 5.0), dpi=500, facecolor="#FFFFFF")
+    ax.set_facecolor("#182521")
+
+    # Grayscale SAR backdrop + hazards
+    ax.imshow(sar_norm, cmap="gray", extent=extent, origin="upper", zorder=1)
+    ax.imshow(hazard_rgba, extent=extent, origin="upper", zorder=2)
+
+    # Pasang Lhamu Highway
+    gdf_hw.plot(ax=ax, color="#14B8A6", linewidth=1.5, zorder=4)
+    # EMSR927 footprint
+    gdf_emsr.plot(ax=ax, facecolor="none", edgecolor="#C084FC", linewidth=1.1, linestyle="--", zorder=5)
+
+    # Key Settlements
+    settlements = [
+        ("Timure Border (AOI02)", 85.378, 28.232, "bottom left"),
+        ("Syapru Besi (AOI01)", 85.340, 28.160, "right"),
+        ("Dhunche (HQ)", 85.295, 28.115, "right"),
+        ("Mailung", 85.185, 28.025, "left"),
+        ("Bidur (AOI03)", 85.155, 27.918, "left"),
+    ]
+    for name, lon, lat, pos in settlements:
+        ax.plot(lon, lat, marker="o", color="#DC2626", markersize=3.5, markeredgecolor="#FFFFFF", markeredgewidth=0.5, zorder=20)
+        ha = "left" if "right" in pos else ("right" if "left" in pos else "center")
+        va = "top" if "bottom" in pos else "center"
+        offset_x = 0.007 if ha == "left" else (-0.007 if ha == "right" else 0.0)
+        offset_y = -0.008 if "bottom" in pos else (0.005 if "top" in pos else 0.0)
+        ax.text(
+            lon + offset_x,
+            lat + offset_y,
+            name,
+            fontsize=5.6,
+            fontweight="bold",
+            color="#0F172A",
+            ha=ha,
+            va=va,
+            bbox=dict(boxstyle="round,pad=0.15", facecolor="#FFFFFF", edgecolor="#CBD5E1", alpha=0.92, lw=0.4),
+            zorder=21,
+        )
+
+    ax.set_xlim(85.05, 85.40)
+    ax.set_ylim(27.85, 28.25)
+    ax.set_xlabel("Longitude (°E)", fontsize=7.0, fontweight="bold", color="#1E293B", labelpad=2)
+    ax.set_ylabel("Latitude (°N)", fontsize=7.0, fontweight="bold", color="#1E293B", labelpad=2)
+    ax.tick_params(labelsize=6.0, colors="#334155", pad=2)
+    ax.grid(color="#E2E8F0", linestyle=":", linewidth=0.5, alpha=0.5)
+
+    # Scale Bar and North Arrow
+    add_scale_bar(ax, 85.07, 27.868, length_km=10.0, label="10 km", text_offset=0.005, fontsize=6.0)
+    add_north_arrow(ax, x=0.90, y=0.91, fontsize=7.2)
+
+    # Title Banner
+    title_text = (
+        "Trishuli Valley SAR Surface Change Assessment\n"
+        "Sentinel-1 Level-1 GRD (24 Aug – 05 Sep 2026) & EMSR927"
+    )
+    ax.text(
+        0.02,
+        0.965,
+        title_text,
+        transform=ax.transAxes,
+        fontsize=5.8,
+        fontweight="bold",
+        color="#0F172A",
+        va="top",
+        bbox=dict(boxstyle="round,pad=0.22", facecolor="#FFFFFF", edgecolor="#CBD5E1", alpha=0.95, lw=0.5),
+        zorder=25,
+    )
+
+    # Legend
+    legend_elements = [
+        mpatches.Patch(facecolor="#1D63B8", edgecolor="none", label="Candidate Flood (126.60 km², Δσ° ≤ -3.5 dB)"),
+        mpatches.Patch(facecolor="#D97706", edgecolor="none", label="Candidate Debris (108.21 km², Δσ° ≥ +3.5 dB)"),
+        mpatches.Patch(facecolor="#0B2545", edgecolor="none", label="Permanent Water (66.40 km², pre/post ≤ -16 dB)"),
+        Line2D([0], [0], color="#14B8A6", lw=1.4, label="Pasang Lhamu Highway (57.95 km corridor)"),
+        Line2D([0], [0], color="#C084FC", lw=1.1, ls="--", label="Copernicus EMSR927 Survey Footprint"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="#DC2626", markersize=3.5, label="Key Settlement / Hub"),
+    ]
+    ax.legend(
+        handles=legend_elements,
+        loc="lower right",
+        fontsize=5.2,
+        framealpha=0.95,
+        facecolor="#FFFFFF",
+        edgecolor="#CBD5E1",
+        borderpad=0.25,
+        labelspacing=0.2,
+    )
+
+    plt.subplots_adjust(left=0.12, right=0.97, bottom=0.09, top=0.97)
+    out_path = FIGURES_DIR / "figure_sitrep_trishuli_change_map.png"
+    plt.savefig(out_path, dpi=500)
+    plt.close()
+    print(f"  -> Generated {out_path} ({round(out_path.stat().st_size / 1e3, 1)} KB)")
+
+
 if __name__ == "__main__":
     generate_figure1()
     generate_figure2()
     generate_figure3()
     generate_figure4()
-    print("\nAll four scientific figures generated successfully at >=300 DPI.")
+    generate_sitrep_figure()
+    print("\nAll scientific figures generated successfully at >=300 DPI.")
+

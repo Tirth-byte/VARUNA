@@ -490,7 +490,6 @@ class SNAPGraphProcessor:
 
         # Known common installation paths
         common_paths = [
-            Path("/Users/macbookair/Downloads/esa-snap/bin/gpt"),
             Path("/Applications/snap/bin/gpt"),
             Path.home() / "Downloads" / "esa-snap" / "bin" / "gpt",
             Path.home() / "snap" / "bin" / "gpt",

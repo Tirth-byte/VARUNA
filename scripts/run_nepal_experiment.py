@@ -94,7 +94,7 @@ def analyze_orbit_pair_comparability(scenes: list[DiscoveredRadarScene]):
 
 
 def run_experiment():
-    output_dir = Path("/Users/macbookair/VARUNA/data/experiments/nepal_aug2026")
+    output_dir = Path(__file__).resolve().parent.parent / "data" / "experiments" / "nepal_aug2026"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 80)

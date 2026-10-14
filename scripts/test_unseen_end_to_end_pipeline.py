@@ -17,6 +17,10 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 import numpy as np
 import rasterio
 from rasterio.transform import from_bounds

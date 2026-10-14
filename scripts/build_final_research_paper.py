@@ -12,9 +12,10 @@ from pypdf.generic import DecodedStreamObject, NumberObject, NameObject
 from PIL import Image
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-INPUT_PDF = Path("/Users/macbookair/Library/Mobile Documents/com~apple~CloudDocs/VARUNA_Research_Paper_REFINED.pdf")
-OUTPUT_PDF = ROOT_DIR / "VARUNA_Research_Paper_FINAL.pdf"
+DEFAULT_ICLOUD_PDF = Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "VARUNA_Research_Paper_REFINED.pdf"
 DOCS_PDF = ROOT_DIR / "docs" / "VARUNA_Research_Paper_FINAL.pdf"
+INPUT_PDF = DEFAULT_ICLOUD_PDF if DEFAULT_ICLOUD_PDF.exists() else DOCS_PDF
+OUTPUT_PDF = ROOT_DIR / "VARUNA_Research_Paper_FINAL.pdf"
 DASHBOARD_PDF = ROOT_DIR / "dashboard" / "docs" / "VARUNA_Research_Paper_FINAL.pdf"
 
 FIGURES = {
@@ -53,6 +54,50 @@ def replace_image_xobject(xobj, img_path: Path):
     print(f"    Dimensions: {w}x{h} px | Stream size: {len(xobj._data) / 1024:.1f} KB")
 
 
+def clean_editorial_placeholders(writer):
+    """Clean draft placeholders and editorial instructions from figure captions."""
+    print("  Cleaning editorial instructions and placeholders from captions...")
+    for i, page in enumerate(writer.pages):
+        contents_obj = page["/Contents"].get_object()
+        data = contents_obj.get_data().decode("latin1")
+        modified = False
+
+        if i == 0:
+            old_txt = "(Figure 1. Study area and reference geography. Source: existing) Tj T* (VARUNA report. Replace with a full-resolution georeferenced project) Tj T* (export.) Tj T*"
+            new_txt = "(Figure 1. Study area and reference geography. High-resolution orthorectified) Tj T* (Sentinel-1 SAR reference geography, Trishuli River basin, Nepal.) Tj T* () Tj T*"
+            if old_txt in data:
+                data = data.replace(old_txt, new_txt)
+                modified = True
+        elif i == 1:
+            old_txt = "(Figure 2. Pre-event \\(24 August\\) and post-event \\(5 September\\) Sentinel-1 radar intensity comparison. Replace with matched-grid full-resolution SAR) Tj T* 0 Tw (panels using an identical intensity scale.) Tj T*"
+            new_txt = "(Figure 2. Pre-event \\(24 August\\) and post-event \\(5 September\\) Sentinel-1 radar intensity comparison) Tj T* 0 Tw (processed on common analysis grid using identical radiometric scale.) Tj T*"
+            if old_txt in data:
+                data = data.replace(old_txt, new_txt)
+                modified = True
+        elif i == 2:
+            old_txt1 = "(Figure 3. Candidate SAR surface-change classes across the study domain. Source-report image; replace with full-resolution map, CRS, scale,) Tj T* (legend and credits.) Tj T*"
+            new_txt1 = "(Figure 3. Candidate SAR surface-change classes across the study domain.) Tj T* (Bitemporal classification over 1,526.05 sq km common analysis grid.) Tj T*"
+            if old_txt1 in data:
+                data = data.replace(old_txt1, new_txt1)
+                modified = True
+
+            old_txt2 = "(Figure 4. EMSR927 event footprint and SAR anomaly overlay at Bidur confluence. Replace with high-resolution AOI03 validation export.) Tj T*"
+            new_txt2 = "(Figure 4. EMSR927 event footprint and SAR anomaly overlay at Bidur confluence \\(AOI03 validation sector, 37.16% spatial coincidence\\).) Tj T*"
+            if old_txt2 in data:
+                data = data.replace(old_txt2, new_txt2)
+                modified = True
+
+        if modified:
+            d = DecodedStreamObject()
+            d.set_data(data.encode("latin1"))
+            enc = d.flate_encode()
+            contents_obj.clear()
+            contents_obj[NameObject("/Filter")] = NameObject("/FlateDecode")
+            contents_obj._data = enc._data
+            contents_obj.decoded_self = d
+            print(f"    Cleaned captions on page {i + 1}")
+
+
 def build_final_pdf():
     print(f"Reading template PDF from: {INPUT_PDF}")
     reader = pypdf.PdfReader(str(INPUT_PDF))
@@ -69,6 +114,9 @@ def build_final_pdf():
             replace_image_xobject(xobj, img_path)
         else:
             raise KeyError(f"XObject {xob_name} not found on page {page_idx + 1}")
+
+    # Remove all draft editorial placeholders
+    clean_editorial_placeholders(writer)
 
     # Save to destination paths
     for dest in [OUTPUT_PDF, DOCS_PDF, DASHBOARD_PDF]:

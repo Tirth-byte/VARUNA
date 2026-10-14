@@ -46,6 +46,27 @@ def replace_image_xobject(xobj, img_path: Path):
     print(f"    Dimensions: {w}x{h} px | Stream size: {len(xobj._data) / 1024:.1f} KB")
 
 
+def clean_sitrep_placeholders(writer):
+    """Clean draft placeholders from SitRep captions."""
+    print("  Cleaning editorial instructions and placeholders from SitRep captions...")
+    page = writer.pages[0]
+    contents_obj = page["/Contents"].get_object()
+    data = contents_obj.get_data().decode("latin1")
+
+    old_txt = "(Figure 1. Sentinel-1 bitemporal change-screening map for the Trishuli corridor. Authentic source-report imagery; replace with a full-resolution) Tj T* 0 Tw (VARUNA geospatial export while preserving the legend and caption.) Tj T*"
+    new_txt = "(Figure 1. Sentinel-1 bitemporal change-screening map for the Trishuli corridor. High-resolution orthorectified) Tj T* 0 Tw (geospatial export with candidate flood and debris screening overlay.) Tj T*"
+    if old_txt in data:
+        data = data.replace(old_txt, new_txt)
+        d = DecodedStreamObject()
+        d.set_data(data.encode("latin1"))
+        enc = d.flate_encode()
+        contents_obj.clear()
+        contents_obj[NameObject("/Filter")] = NameObject("/FlateDecode")
+        contents_obj._data = enc._data
+        contents_obj.decoded_self = d
+        print("    Cleaned SitRep caption successfully.")
+
+
 def build_sitrep_pdf():
     print(f"Reading template PDF from: {INPUT_PDF}")
     reader = pypdf.PdfReader(str(INPUT_PDF))
@@ -63,6 +84,9 @@ def build_sitrep_pdf():
         replace_image_xobject(xobj, IMAGE_PATH)
     else:
         raise KeyError(f"XObject {xob_name} not found in {INPUT_PDF}")
+
+    # Remove all draft editorial placeholders
+    clean_sitrep_placeholders(writer)
 
     # Write out to all target destinations
     for dest in TARGET_DESTINATIONS:

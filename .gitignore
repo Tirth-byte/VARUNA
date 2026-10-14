@@ -65,8 +65,18 @@ cache/
 *.nc
 *.hdf
 
+# Video recordings and raw captures (excluded from Git per hackathon guidelines)
+*.mp4
+*.webm
+*.mov
+*.avi
+*.mkv
+.playwright_raw/
+reports/demo_recording/*.mp4
+
 # IDE / Editor artifacts
 .idea/
 .vscode/
 *.swp
 *.swo
+
